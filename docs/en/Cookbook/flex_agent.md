@@ -191,8 +191,10 @@ if __name__ == "__main__":
 
 > Note: If no matching tool is found, it falls back to the LLM for a direct answer.
 ### View Full Code
-```python
+<details>
+<summary>Click to expand full code</summary>
 
+```python
 import json
 import numpy as np
 from lazyllm import OnlineChatModule,TrainableModule
@@ -280,7 +282,10 @@ if __name__ == "__main__":
         res = llm(query)
 
     print(res)
+
 ```
+</details>
+
 ### Example Output
 
 **Input:**
