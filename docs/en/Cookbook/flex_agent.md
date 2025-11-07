@@ -192,7 +192,8 @@ if __name__ == "__main__":
 > Note: If no matching tool is found, it falls back to the LLM for a direct answer.
 ### View Full Code
 <details>
-<summary>点击展开完整代码</summary>
+<summary>Click to expand full code</summary>
+
 ```python
 import json
 import numpy as np
@@ -281,8 +282,10 @@ if __name__ == "__main__":
         res = llm(query)
 
     print(res)
-</details>
+
 ```
+</details>
+
 ### Example Output
 
 **Input:**

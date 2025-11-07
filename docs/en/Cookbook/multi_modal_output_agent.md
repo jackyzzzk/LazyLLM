@@ -87,7 +87,9 @@ tools = ["optimize_prompt",  "generate_image"]
 agent = lazyllm.ReactAgent(llm=llm, tools=tools)
 print(agent("画个猫"))
 ```
-### 完整代码
+### View full code
+
+
 ```python
 import lazyllm
 from lazyllm import fc_register

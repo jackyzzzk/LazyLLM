@@ -225,6 +225,7 @@ python agent_n_rag.py
 ## 完整代码
 <details>
 <summary>点击展开完整代码</summary>
+
 ```python
 import os
 import tempfile
@@ -521,8 +522,10 @@ def start_web_interface():
 if __name__ == "__main__":
     # Start web interface
     start_web_interface()
-</details>
+
 ```
+</details>
+
 
 ## 示例运行结果
 ```bash

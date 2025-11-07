@@ -144,7 +144,8 @@ Isn’t it amazing? Our API Agent not only understands your question but also �
 
 ## View Full Code
 <details>
-<summary>点击展开/折叠 Python代码</summary>
+<summary>Click to expand full code</summary>
+
 ```python
 import re
 import json
@@ -362,7 +363,6 @@ class LazyAPIChain(ModuleBase):
         return request.forward(variables)
 
 
-# Register as a function-call tool for LLM agents
 @fc_register
 def query_restcountry(question: str) -> str:
     """
@@ -377,16 +377,15 @@ def query_restcountry(question: str) -> str:
     """
     return LazyAPIChain(api_docs=api_docs).query(question)
 
-
-# Main entry point: launch a web service for conversational country info queries
 if __name__ == "__main__":
     # Initialize the LLM (using Qwen online model)
     llm = OnlineChatModule(source="qwen", stream=False)
     agent = ReactAgent(llm, tools=["query_restcountry"])
     # Start a web server on an available port in the range 23480–23489
     lazyllm.WebModule(agent, port=range(23480, 23490)).start().wait()
-</details>
+
 ```
+</details>
 
 ---
 

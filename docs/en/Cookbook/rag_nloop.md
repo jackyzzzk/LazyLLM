@@ -358,6 +358,7 @@ Then visit `http://localhost:8849` to interact with the conversational RAG syste
 ## Full code
 <details>
 <summary>Click to expand full code</summary>
+
 ```python
 import os
 import tempfile
@@ -654,8 +655,9 @@ def start_web_interface():
 if __name__ == "__main__":
     # Start web interface
     start_web_interface()
-</details>
+
 ```
+</details>
 
 ## Example Output
 ``` bash
