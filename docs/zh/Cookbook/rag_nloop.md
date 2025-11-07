@@ -458,8 +458,6 @@ Please provide a helpful and accurate answer:"""
             print(error_msg)
             return error_msg
 
-
-# Global RAG system instance
 rag_system = None
 
 
@@ -525,7 +523,8 @@ if __name__ == "__main__":
     start_web_interface()
 </details>
 ```
-### 示例运行结果
+
+## 示例运行结果
 ```bash
 <think>好的，用户问的是任务分解的标准方法是什么，然后在得到答案后需要查找该方法的常见扩展。首先，我需要确定任务分解的标准方法有哪些。常见的任务分解方法包括工作分解结构（WBS）、目标树、任务列表等。其中，WBS应该是项目管理中最常用的标准方法之一，它通过将项目逐层分解为更小的任务来组织工作。
 

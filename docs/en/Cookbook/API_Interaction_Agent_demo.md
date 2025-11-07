@@ -4,9 +4,9 @@ Want a large language model to automatically call real-world APIs based on your 
 
 !!! abstract "In this section, you'll learn the following LazyLLM essentials"
 
-- How to inherit from [ModuleBase][lazyllm.module.module.ModuleBase] to implement an API tool module;
-- How to wrap and register a function as a tool;
-- How to use [ReactAgent][lazyllm.tools.agent.ReactAgent] with [WebModule][lazyllm.tools.WebModule] to enable API calling via Q&A.
+    - How to inherit from [ModuleBase][lazyllm.module.module.ModuleBase] to implement an API tool module;
+    - How to wrap and register a function as a tool;
+    - How to use [ReactAgent][lazyllm.tools.agent.ReactAgent] with [WebModule][lazyllm.tools.WebModule] to enable API calling via Q&A.
 
 ---
 ## Design Approach
@@ -143,9 +143,8 @@ Isn’t it amazing? Our API Agent not only understands your question but also �
 ---
 
 ## View Full Code
-
-
-    
+<details>
+<summary>点击展开/折叠 Python代码</summary>
 ```python
 import re
 import json
@@ -386,6 +385,7 @@ if __name__ == "__main__":
     agent = ReactAgent(llm, tools=["query_restcountry"])
     # Start a web server on an available port in the range 23480–23489
     lazyllm.WebModule(agent, port=range(23480, 23490)).start().wait()
+</details>
 ```
 
 ---

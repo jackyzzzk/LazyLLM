@@ -4,8 +4,8 @@ This project demonstrates how to use [LazyLLM](https://github.com/LazyAGI/LazyLL
 
 !!! abstract "By the end of this section, you will learn the following key features of LazyLLM"
 
-- How to combine [TrainableModule][lazyllm.module.TrainableModule] to invoke models of different modalities.
-- How to use [ReactAgent][lazyllm.tools.agent.ReactAgent] to automatically select and invoke tools to accomplish complex tasks.
+    - How to combine [TrainableModule][lazyllm.module.TrainableModule] to invoke models of different modalities.
+    - How to use [ReactAgent][lazyllm.tools.agent.ReactAgent] to automatically select and invoke tools to accomplish complex tasks.
 
 ## Design Approach
 To achieve high-quality image generation, we propose a dual-toolchain collaborative mechanism combining prompt optimization and image generation.

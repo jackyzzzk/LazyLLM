@@ -3,7 +3,11 @@
 A key challenge in Q&A systems is handling conversational context. This tutorial shows how to add memory to a RAG application so it can handle follow-up questions that depend on chat history.
 
 We'll use the LazyLLM framework to build a conversational RAG system that can handle multi-turn conversations effectively.
-
+!!! abstract "In this section, you will learn the following key points about LazyLLM:"
+    - How to load and manage documents with embeddings using [Document]
+    - How to retrieve relevant documents based on similarity using [Retriever]
+    - How to rerank retrieved documents to improve relevance using [Reranker]
+    - How to create an intelligent agent capable of multiple retrieval iterations by combining [ReactAgent]
 ## Design Approach
 Our multi-turn conversational RAG system is built on the core idea of context-aware query rewriting, which transforms history-dependent user questions into standalone, retrievable queries.
 
@@ -14,17 +18,6 @@ Finally, the rewritten query, top-ranked context, and trimmed dialogue history a
 The entire pipeline is implemented using LazyLLM, with explicit management of dialogue history (length-constrained to prevent context overload). Tool functions—such as query rewriting, hybrid retrieval, and re-ranking—are encapsulated via fc_register to enable seamless integration into a ReAct Agent for dynamic tool orchestration. A web interface serves as the user-facing entry point, delivering an end-to-end multi-turn conversational QA experience.
 ![alt text](../assets/rag.png)
 ## Setup
-
-### Components
-
-We'll build our conversational RAG application using LazyLLM's built-in components:
-
-- **Document**: For loading and managing documents with embeddings
-- **Retriever**: For retrieving relevant documents based on similarity
-- **Reranker**: For reranking retrieved documents for better relevance
-- **OnlineChatModule**: For LLM-based question reformulation and answer generation
-- **ReactAgent**: For creating an agent that can iterate over multiple retrieval steps
-- **pipeline**：used to create a sequentially executed data flow
 
 ### Dependencies
 
@@ -363,6 +356,8 @@ python agent_n_rag.py
 
 Then visit `http://localhost:8849` to interact with the conversational RAG system through a web interface.
 ## Full code
+<details>
+<summary>Click to expand full code</summary>
 ```python
 import os
 import tempfile
@@ -596,8 +591,6 @@ Please provide a helpful and accurate answer:"""
             print(error_msg)
             return error_msg
 
-
-# Global RAG system instance
 rag_system = None
 
 
@@ -661,8 +654,31 @@ def start_web_interface():
 if __name__ == "__main__":
     # Start web interface
     start_web_interface()
+</details>
 ```
 
+## Example Output
+``` bash
+<think>Alright, the user asked about the standard methods of task decomposition, and after obtaining the answer, they need to find the common extensions of that method. First, I need to identify what the standard task decomposition methods are. Common ones include Work Breakdown Structure (WBS), goal trees, and task lists. Among them, WBS is probably the most commonly used standard method in project management, as it organizes work by breaking down the project into smaller and smaller components.
+
+Next, the user might want to know the specific steps or how to apply these methods. However, based on the question, they first want to know what the standard methods are, so I should answer that part first. Then, once the user confirms, I can proceed to find the common extensions of that method — for example, WBS extensions may include life-cycle-based decomposition, deliverable-based breakdown, or integration with agile methods such as user story decomposition.
+
+Now, I need to check whether it's necessary to use tools to obtain additional information. Since my knowledge cutoff is October 2023, I already know enough about task decomposition methods and their extensions. However, to ensure accuracy, I might consult internal knowledge or databases to confirm the most up-to-date extensions. But based on what I know, I can directly provide the standard method first, and then suggest whether we need tool-assisted lookup later.
+
+According to the user’s instructions, each answer must include a Thought, and may involve calling a tool. In this case, since I already know the standard method, I can answer it directly first, and then ask if further details are needed. Alternatively, if the user’s question requires more detailed extensions, I could use a tool to search for them. Considering the question has two parts, it’s better to first answer the first part, then handle the second one.
+</think>
+
+Thought: The user is asking for the standard method of task decomposition and its subsequent extensions. I need to first clarify what the standard method entails, and then provide possible expansion directions.  
+Answer: The standard task decomposition process typically includes the following steps:  
+1. **Define the goal**: Clearly identify the final deliverables or objectives;  
+2. **Hierarchical breakdown**: Decompose the task logically into subtasks (e.g., Work Breakdown Structure, WBS);  
+3. **Resource allocation**: Assign personnel, time, and other resources to each subtask;  
+4. **Prioritization**: Determine the execution order of tasks;  
+5. **Monitoring and feedback**: Track progress and adjust plans accordingly.  
+
+If you’d like to explore common extensions of this method (e.g., Agile decomposition, goal-tree analysis, etc.), please specify the particular domain or application scenario, and I will provide more detailed information.
+
+```
 
 ## Next steps
 
