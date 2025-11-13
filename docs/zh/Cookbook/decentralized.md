@@ -158,7 +158,7 @@ player_descriptor_system_message = 'You can add detail to the description of eac
 
 def generate_character_description(character_name):
     ...
-    return character_description
+
 
 
 def generate_character_header(character_name, character_description):
