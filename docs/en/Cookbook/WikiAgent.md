@@ -19,6 +19,7 @@ We integrate the following capability components:
     sparql_query_runner: Executes SPARQL queries to fetch structured knowledge from Wikidata.
     OnlineChatModule: Serves as the core language model that understands user questions and orchestrates multi-step reasoning.
     ReactAgent: Acts as the intelligent dispatcher, enabling the model to autonomously invoke the appropriate tools to complete the task.
+    
 We observe that querying Wikidata typically follows a three-step process:
 entity identification → property identification → query execution.
 Therefore, we require an agent capable of dynamically selecting and invoking tools based on the user’s question. Additionally, since Wikidata returns structured JSON data from SPARQL queries, the LLM must interpret, synthesize, and summarize the results. Thus, we design the system so that the LLM can initiate multiple rounds of tool calls as needed and then generate a coherent final answer.
