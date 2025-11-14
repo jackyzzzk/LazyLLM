@@ -52,7 +52,6 @@ WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
 HEADERS = {'User-Agent': '"lazyllm-agent/0.1 (test@example.com)"', 'Accept': 'application/json'}
 ```
-
 ---
 
 ### 工具函数：安全地提取嵌套 JSON
