@@ -15,11 +15,11 @@ To enable our AI not only to chat but also to perform real-time knowledge retrie
 
 We integrate the following capability components:
 
-    - item_lookup: Retrieves a Wikidata entity by name and returns its Q-ID.
-    - property_lookup: Retrieves a Wikidata property by label and returns its P-ID.
-    - sparql_query_runner: Executes SPARQL queries to fetch structured knowledge from Wikidata.
-    - OnlineChatModule: Serves as the core language model that understands user questions and orchestrates multi-step reasoning.
-    - ReactAgent: Acts as the intelligent dispatcher, enabling the model to autonomously invoke the appropriate tools to complete the task.
+- `item_lookup`: Retrieves a Wikidata entity by name and returns its Q-ID.
+- `property_lookup`: Retrieves a Wikidata property by label and returns its P-ID.
+- `sparql_query_runner`: Executes SPARQL queries to fetch structured knowledge from Wikidata.
+- `OnlineChatModule`: Serves as the core language model that understands user questions and orchestrates multi-step reasoning.
+- `ReactAgent`: Acts as the intelligent dispatcher, enabling the model to autonomously invoke the appropriate tools to complete the task.
 
 We observe that querying Wikidata typically follows a three-step process:
 entity identification → property identification → query execution.
