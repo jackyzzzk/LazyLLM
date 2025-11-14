@@ -41,6 +41,8 @@
 
 以下是你构建 Wikibase 工具的典型代码结构。示例使用了 [Wikidata API](https://www.wikidata.org/w/api.php) 和 [SPARQL endpoint](https://query.wikidata.org/)。
 
+### 常量定义
+定义了WIKIDATA的常量
 ```python
 from thirdparty import httpx
 from lazyllm import WebModule
