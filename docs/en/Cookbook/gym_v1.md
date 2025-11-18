@@ -7,7 +7,10 @@ In many LLM agent applications, the agent needs to interact with real-world envi
 
 ------
 ## Feature Overview
-This is a game of Blackjack, where the player and dealer compete to get as close to 21 as possible without going over. The player can choose to “hit” (draw another card) or “stick” (stop drawing). The dealer follows a fixed rule: it must hit if its total is below 17 and must stick if it’s 17 or higher. The Ace is special—it can count as either 1 or 11 points; the system automatically uses 11 unless that would cause a bust, in which case it drops to 1. If the player busts, they lose; if the dealer busts, the player wins; if neither busts, the higher total wins. In this setup, the Gymnasium environment acts as the dealer, while the Agent plays as the player, interacting with the environment by calling tools to decide when to hit or stick—learning to make smart decisions in the game of Blackjack. The specific functions are as follows:
+This is a game of Blackjack, where the player and dealer compete to get as close to 21 as possible without going over. The player can choose to “hit” (draw another card) or “stick” (stop drawing). The dealer follows a fixed rule: it must hit if its total is below 17 and must stick if it’s 17 or higher. The Ace is special—it can count as either 1 or 11 points; the system automatically uses 11 unless that would cause a bust, in which case it drops to 1. If the player busts, they lose; if the dealer busts, the player wins; if neither busts, the higher total wins. In this setup, the Gymnasium environment acts as the dealer, while the Agent plays as the player, interacting with the environment by calling tools to decide when to hit or stick—learning to make smart decisions in the game of Blackjack. 
+
+The specific functions are as follows:
+
 * Automatically initialize the `Gymnasium Blackjack-v1` environment and manage global state (observation, return, termination status, etc.).
 * Register three tool functions — `env_reset`, `env_step`, and `sample_random_action` — exposed as callable interfaces for LLMs via fc_register, enabling environment reset, action execution, and random action sampling.
 * Construct a conversational intelligent agent using `ReactAgent` to enable natural language-driven interactive reasoning over the environment.
