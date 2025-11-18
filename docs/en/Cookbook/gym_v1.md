@@ -1,6 +1,6 @@
 # Environment Interaction with LazyLLM
 
-In many LLM agent applications, the agent needs to interact with real-world environments such as the internet, databases, or code execution (REPL). However, for easier development and testing, we can also create simulated environments—such as text-based adventure games—where the agent can make decisions and engage in interactions. This tutorial demonstrates how to use **LazyLLM** in conjunction with the **Gymnasium Blackjack-v1** environment to build a simple text-based interaction loop, enabling seamless dialogue and response cycles between the agent and the environment.
+In many LLM agent applications, the agent needs to interact with real-world environments such as the internet, databases, or code execution (REPL). However, for easier development and testing, we can also create simulated environments—such as text-based adventure games—where the agent can make decisions and engage in interactions. This tutorial demonstrates how to use [LazyLLM](https://github.com/LazyAGI/LazyLLM) in conjunction with the **Gymnasium Blackjack-v1** environment to build a simple text-based interaction loop, enabling seamless dialogue and response cycles between the agent and the environment.
 !!! abstract "By the end of this section, you will learn the following key features of LazyLLM"
     - How to control an environment using [ReactAgent][lazyllm.tools.agent.ReactAgent]
     - How to register environment operation tools via @fc_register

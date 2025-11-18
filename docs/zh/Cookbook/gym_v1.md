@@ -1,6 +1,6 @@
 # 基于LazyLLM的模拟环境交互
 
-在许多LLM代理的应用中，Agent需要与真实世界交互，例如访问互联网、数据库或执行代码（REPL）。但为了便于开发和测试，我们也可以构建模拟环境——比如文字冒险游戏——让Agent在其中进行决策和互动。本教程将展示如何使用 **LazyLLM** 结合 **Gymnasium Blackjack-v1** 环境，搭建一个简单的文本交互环境，并实现Agent与环境之间的循环对话与响应机制。
+在许多LLM代理的应用中，Agent需要与真实世界交互，例如访问互联网、数据库或执行代码（REPL）。但为了便于开发和测试，我们也可以构建模拟环境——比如文字冒险游戏——让Agent在其中进行决策和互动。本教程将展示如何使用 [LazyLLM](https://github.com/LazyAGI/LazyLLM) 结合 **Gymnasium Blackjack-v1** 环境，搭建一个简单的文本交互环境，并实现Agent与环境之间的循环对话与响应机制。
 !!! abstract "通过本节您将学习到 LazyLLM 的以下要点"
     - 如何结合 [ReactAgent][lazyllm.tools.agent.ReactAgent]控制环境
     - 如何通过 @fc_register 注册环境操作工具
