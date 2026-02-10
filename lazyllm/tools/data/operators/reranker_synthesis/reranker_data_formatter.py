@@ -5,17 +5,21 @@ This operator formats reranker training data into standard training formats.
 该算子将 Reranker 训练数据格式化为标准的训练格式。
 """
 import json
-import os
 import random
-import pandas as pd
 from pathlib import Path
 from typing import List, Optional
 from lazyllm import LOG
+from lazyllm.common.registry import LazyLLMRegisterMetaClass
 from ...base_data import data_register
 
-funcs = data_register.new_group('function')
-classes = data_register.new_group('class')
-class RerankerDataFormatter(classes):
+# 获取或创建 reranker 分组
+if 'data' in LazyLLMRegisterMetaClass.all_clses and 'reranker' in LazyLLMRegisterMetaClass.all_clses['data']:
+    reranker = LazyLLMRegisterMetaClass.all_clses['data']['reranker'].base
+else:
+    reranker = data_register.new_group('reranker')
+
+
+class RerankerDataFormatter(reranker):
     """
     Format reranker training data into standard formats.
     将 Reranker 训练数据格式化为标准格式。
@@ -39,7 +43,9 @@ class RerankerDataFormatter(classes):
             output_format: str = "flagreranker",
             output_file: Optional[str] = None,
             train_group_size: int = 8,
+            **kwargs
     ):
+        super().__init__(**kwargs)
         self.output_format = output_format
         self.output_file = output_file
         self.train_group_size = train_group_size
@@ -69,12 +75,7 @@ class RerankerDataFormatter(classes):
                 "- pairwise: Pairwise learning to rank format"
             )
 
-    def _format_flagreranker(
-            self,
-            query: str,
-            pos: List[str],
-            neg: List[str],
-    ) -> dict:
+    def _format_flagreranker(self, query: str, pos: List[str], neg: List[str]) -> dict:
         """Format to FlagReranker training format."""
         # Ensure neg has exactly train_group_size - 1 samples
         num_neg_needed = self.train_group_size - 1
@@ -90,12 +91,7 @@ class RerankerDataFormatter(classes):
             "neg": neg,
         }
 
-    def _format_cross_encoder(
-            self,
-            query: str,
-            pos: List[str],
-            neg: List[str],
-    ) -> List[dict]:
+    def _format_cross_encoder(self, query: str, pos: List[str], neg: List[str]) -> List[dict]:
         """Format to Cross-Encoder training format (multiple rows)."""
         results = []
         pos_list = pos if isinstance(pos, list) else [pos]
@@ -103,28 +99,15 @@ class RerankerDataFormatter(classes):
 
         # Positive samples with label 1
         for p in pos_list:
-            results.append({
-                "query": query,
-                "document": p,
-                "label": 1,
-            })
+            results.append({"query": query, "document": p, "label": 1})
 
         # Negative samples with label 0
         for n in neg_list:
-            results.append({
-                "query": query,
-                "document": n,
-                "label": 0,
-            })
+            results.append({"query": query, "document": n, "label": 0})
 
         return results
 
-    def _format_pairwise(
-            self,
-            query: str,
-            pos: List[str],
-            neg: List[str],
-    ) -> List[dict]:
+    def _format_pairwise(self, query: str, pos: List[str], neg: List[str]) -> List[dict]:
         """Format to pairwise learning to rank format."""
         results = []
         pos_list = pos if isinstance(pos, list) else [pos]
@@ -133,89 +116,74 @@ class RerankerDataFormatter(classes):
         # Create pairwise comparisons
         for p in pos_list:
             for n in neg_list:
-                results.append({
-                    "query": query,
-                    "doc_pos": p,
-                    "doc_neg": n,
-                })
+                results.append({"query": query, "doc_pos": p, "doc_neg": n})
 
         return results
 
-    def __call__(
-            self,
-            data,
-            input_query_key: str = "query",
-            input_pos_key: str = "pos",
-            input_neg_key: str = "neg",
-    ):
+    def _save_to_file(self, results: List[dict]):
+        """Save results to output file if specified."""
+        if self.output_file:
+            output_path = Path(self.output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(output_path, 'a', encoding='utf-8') as f:
+                for item in results:
+                    f.write(json.dumps(item, ensure_ascii=False) + '\n')
+
+    def forward(self, data, input_query_key: str = "query", input_pos_key: str = "pos", input_neg_key: str = "neg"):
         """
-        Format the training data.
+        Format a single training sample.
 
         Args:
-            data: List of dict or pandas DataFrame
+            data: Dict containing query, pos, and neg fields
             input_query_key: Key for query field
             input_pos_key: Key for positive samples field
             input_neg_key: Key for negative samples field
 
         Returns:
             List of dict in the specified output format
+            (may return multiple items for cross_encoder and pairwise formats)
         """
-        if isinstance(data, pd.DataFrame):
-            dataframe = data
+        assert isinstance(data, dict), "Input data must be a dict"
+
+        query = data.get(input_query_key, "")
+        pos = data.get(input_pos_key, [])
+        neg = data.get(input_neg_key, [])
+
+        if not query or not pos:
+            LOG.warning(f"Skipping row with missing query or pos")
+            return []
+
+        # Ensure pos and neg are lists
+        if not isinstance(pos, list):
+            pos = [pos]
+        if not isinstance(neg, list):
+            neg = [neg] if neg else []
+
+        # Format based on output format
+        if self.output_format == "flagreranker":
+            formatted = self._format_flagreranker(query, pos, neg)
+            results = [formatted]
+        elif self.output_format == "cross_encoder":
+            results = self._format_cross_encoder(query, pos, neg)
+        elif self.output_format == "pairwise":
+            results = self._format_pairwise(query, pos, neg)
         else:
-            dataframe = pd.DataFrame(data)
-
-        LOG.info(f"Formatting {len(dataframe)} samples to {self.output_format} format...")
-
-        results = []
-        for _, row in dataframe.iterrows():
-            query = row.get(input_query_key, "")
-            pos = row.get(input_pos_key, [])
-            neg = row.get(input_neg_key, [])
-
-            if not query or not pos:
-                LOG.warning(f"Skipping row with missing query or pos")
-                continue
-
-            # Ensure pos and neg are lists
-            if not isinstance(pos, list):
-                pos = [pos]
-            if not isinstance(neg, list):
-                neg = [neg] if neg else []
-
-            # Format based on output format
-            if self.output_format == "flagreranker":
-                formatted = self._format_flagreranker(query, pos, neg)
-                results.append(formatted)
-            elif self.output_format == "cross_encoder":
-                formatted = self._format_cross_encoder(query, pos, neg)
-                results.extend(formatted)
-            elif self.output_format == "pairwise":
-                formatted = self._format_pairwise(query, pos, neg)
-                results.extend(formatted)
-            else:
-                raise ValueError(f"Unknown output format: {self.output_format}")
-
-        LOG.info(f"Formatted {len(results)} training samples.")
+            raise ValueError(f"Unknown output format: {self.output_format}")
 
         # Save to file if specified
-        if self.output_file:
-            output_path = Path(self.output_file)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(output_path, 'w', encoding='utf-8') as f:
-                for item in results:
-                    f.write(json.dumps(item, ensure_ascii=False) + '\n')
-            LOG.info(f"Saved formatted data to {output_path}")
+        self._save_to_file(results)
 
         return results
 
 
-
-class RerankerTrainTestSplitter(classes):
+class RerankerTrainTestSplitter(reranker):
     """
     Split reranker training data into train/test sets.
     将 Reranker 训练数据分割为训练集和测试集。
+
+    This operator requires batch context to perform global shuffle and split,
+    so it uses forward_batch_input.
 
     Args:
         test_size: Proportion of data for test set (default: 0.1)
@@ -230,7 +198,9 @@ class RerankerTrainTestSplitter(classes):
             seed: int = 42,
             train_output_file: Optional[str] = None,
             test_output_file: Optional[str] = None,
+            **kwargs
     ):
+        super().__init__(**kwargs)
         self.test_size = test_size
         self.seed = seed
         self.train_output_file = train_output_file
@@ -257,20 +227,18 @@ class RerankerTrainTestSplitter(classes):
                 "- Test set includes negatives for evaluation"
             )
 
-    def __call__(self, data):
+    def forward_batch_input(self, data: List[dict]) -> List[dict]:
         """
         Split the data into train and test sets.
 
         Args:
-            data: List of dict or pandas DataFrame
+            data: List of dict with training samples
 
         Returns:
             List of dict with 'split' field indicating train/test
         """
-        if isinstance(data, pd.DataFrame):
-            records = data.to_dict('records')
-        else:
-            records = list(data)
+        assert isinstance(data, list), "Input data must be a list"
+        records = list(data)
 
         LOG.info(f"Splitting {len(records)} samples with test_size={self.test_size}")
 
@@ -316,4 +284,3 @@ class RerankerTrainTestSplitter(classes):
             LOG.info(f"Saved test data to {output_path}")
 
         return train_data + test_data
-

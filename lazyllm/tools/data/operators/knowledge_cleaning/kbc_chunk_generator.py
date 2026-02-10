@@ -45,8 +45,8 @@ class KBCChunkGenerator(kbc):
         """Ensure tokenizer and chunker are initialized"""
         if self.tokenizer is None:
             try:
+                # from lazyllm.thirdparty.transformers import AutoTokenizer
                 from transformers import AutoTokenizer
-                from chonkie import TokenChunker, SentenceChunker, SemanticChunker, RecursiveChunker
                 self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
                 self.chunker = self._initialize_chunker()
             except ImportError as e:
@@ -55,6 +55,7 @@ class KBCChunkGenerator(kbc):
 
     def _initialize_chunker(self):
         """Initialize the appropriate chunker based on method"""
+        # from lazyllm.thirdparty.chonkie import TokenChunker, SentenceChunker, SemanticChunker, RecursiveChunker
         from chonkie import TokenChunker, SentenceChunker, SemanticChunker, RecursiveChunker
 
         if self.split_method == "token":
@@ -121,57 +122,56 @@ class KBCChunkGenerator(kbc):
         else:
             raise ValueError("Unsupported file format")
 
-    def forward_batch_input(
+    def forward(
             self,
-            data: List[dict],
+            data: dict,
             input_key: str = 'text_path',
             output_key: str = "raw_chunk",
     ) -> List[dict]:
         """
-        Perform text splitting.
+        Perform text splitting for a single file.
+        Returns a list of dict (one per chunk).
 
         Args:
-            data: List of dict
-            input_key: Key for input text file paths
+            data: Single dict item
+            input_key: Key for input text file path
             output_key: Key for output chunks
 
         Returns:
-            List of dict with chunks added
+            List of dict with chunks (one dict per chunk)
         """
-        assert isinstance(data, list), "Input data must be a list of dict"
+        assert isinstance(data, dict), "Input data must be a dict"
         self._ensure_initialized()
 
-        text_paths = [item.get(input_key, "") for item in data]
-        for input_path in text_paths:
-            if not input_path or not os.path.exists(input_path):
-                LOG.error(f"Invalid input file path: {input_path}")
+        text_path = data.get(input_key, "")
+        if not text_path or not os.path.exists(text_path):
+            LOG.error(f"Invalid input file path: {text_path}")
+            return []
+
+        text = self._load_text(text_path)
+        if not text:
+            return []
+
+        tokens = self.tokenizer.encode(text)
+        total_tokens = len(tokens)
+        max_tokens = self.tokenizer.model_max_length
+
+        if total_tokens <= max_tokens:
+            chunks = self.chunker(text)
+        else:
+            x = (total_tokens + max_tokens - 1) // max_tokens
+            words = text.split()
+            words_per_chunk = (len(words) + x - 1) // x
+
+            chunks = []
+            for i in range(0, len(words), words_per_chunk):
+                chunk_text = ' '.join(words[i:i + words_per_chunk])
+                chunks.extend(self.chunker(chunk_text))
 
         new_records = []
-        for row_dict, text_path in zip(data, text_paths):
-            if not text_path:
-                continue
-            text = self._load_text(text_path)
-            if text:
-                tokens = self.tokenizer.encode(text)
-                total_tokens = len(tokens)
-                max_tokens = self.tokenizer.model_max_length
+        for chunk in chunks:
+            new_row = data.copy()
+            new_row[output_key] = chunk.text
+            new_records.append(new_row)
 
-                if total_tokens <= max_tokens:
-                    chunks = self.chunker(text)
-                else:
-                    x = (total_tokens + max_tokens - 1) // max_tokens
-                    words = text.split()
-                    words_per_chunk = (len(words) + x - 1) // x
-
-                    chunks = []
-                    for i in range(0, len(words), words_per_chunk):
-                        chunk_text = ' '.join(words[i:i + words_per_chunk])
-                        chunks.extend(self.chunker(chunk_text))
-
-                for chunk in chunks:
-                    new_row = row_dict.copy()
-                    new_row[output_key] = chunk.text
-                    new_records.append(new_row)
-
-        LOG.info(f"Successfully split text for {len(text_paths)} files.")
         return new_records

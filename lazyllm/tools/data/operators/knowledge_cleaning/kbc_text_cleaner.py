@@ -58,42 +58,35 @@ class KBCTextCleaner(kbc):
             results.append(llm_serve(prompt))
         return results
 
-    def forward_batch_input(
+    def forward(
             self,
-            data: List[dict],
+            data: dict,
             input_key: str = "raw_chunk",
             output_key: str = "cleaned_chunk",
-    ) -> List[dict]:
+    ) -> dict:
         """
-        Clean raw text content.
+        Clean raw text content for a single item.
 
         Args:
-            data: List of dict
+            data: Single dict item
             input_key: Key for input raw content
             output_key: Key for output cleaned content
 
         Returns:
-            List of dict with cleaned content added
+            Dict with cleaned content added
         """
-        assert isinstance(data, list), "Input data must be a list of dict"
+        assert isinstance(data, dict), "Input data must be a dict"
 
-        raw_contents = [item.get(input_key, "") for item in data]
-        formatted_prompts = [self.prompt_template.build_prompt(content) for content in raw_contents]
-        cleaned = self._generate_from_llm(formatted_prompts, "")
+        raw_content = data.get(input_key, "")
+        formatted_prompt = self.prompt_template.build_prompt(raw_content)
+        cleaned = self._generate_from_llm([formatted_prompt], "")[0]
 
         # Extract content between <cleaned_start> and <cleaned_end>
-        cleaned_extracted = [
-            str(text).split('<cleaned_start>')[1].split('<cleaned_end>')[0].strip()
-            if '<cleaned_start>' in str(text) and '<cleaned_end>' in str(text)
-            else str(text).strip()
-            for text in cleaned
-        ]
+        if '<cleaned_start>' in str(cleaned) and '<cleaned_end>' in str(cleaned):
+            cleaned_text = str(cleaned).split('<cleaned_start>')[1].split('<cleaned_end>')[0].strip()
+        else:
+            cleaned_text = str(cleaned).strip()
 
-        results = []
-        for item, cleaned_text in zip(data, cleaned_extracted):
-            new_item = item.copy()
-            new_item[output_key] = cleaned_text
-            results.append(new_item)
-
-        LOG.info("Text cleaning completed!")
-        return results
+        result = data.copy()
+        result[output_key] = cleaned_text
+        return result

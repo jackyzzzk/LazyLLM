@@ -77,54 +77,48 @@ class KBCTextCleanerBatch(kbc):
         inputs = [self.prompts.build_prompt(content) for content in raw_contents]
         return raw_contents, inputs
 
-    def forward_batch_input(
+    def forward(
             self,
-            data: List[dict],
+            data: dict,
             input_key: str = "chunk_path",
             output_key: str = "cleaned_chunk_path",
-    ) -> List[dict]:
+    ) -> dict:
         """
-        Batch clean text content from chunk files.
+        Clean text content from a single chunk file.
 
         Args:
-            data: List of dict
-            input_key: Key for input chunk file paths
-            output_key: Key for output cleaned chunk file paths
+            data: Single dict item
+            input_key: Key for input chunk file path
+            output_key: Key for output cleaned chunk file path
 
         Returns:
-            List of dict with cleaned chunk paths added
+            Dict with cleaned chunk path added
         """
-        assert isinstance(data, list), "Input data must be a list of dict"
+        assert isinstance(data, dict), "Input data must be a dict"
 
-        chunk_paths = [item.get(input_key, "") for item in data]
+        chunk_path = data.get(input_key, "")
 
-        for chunk_path in chunk_paths:
-            if chunk_path:
-                raw_chunks, formatted_prompts = self._reformat_prompt_from_path(chunk_path)
-                cleaned = self._generate_from_llm(formatted_prompts, "")
+        if chunk_path:
+            raw_chunks, formatted_prompts = self._reformat_prompt_from_path(chunk_path)
+            cleaned = self._generate_from_llm(formatted_prompts, "")
 
-                # Extract content between <cleaned_start> and <cleaned_end>
-                cleaned_extracted = [
-                    text.split('<cleaned_start>')[1].split('<cleaned_end>')[0].strip()
-                    if '<cleaned_start>' in str(text) and '<cleaned_end>' in str(text)
-                    else str(text).strip()
-                    for text in cleaned
-                ]
+            # Extract content between <cleaned_start> and <cleaned_end>
+            cleaned_extracted = [
+                text.split('<cleaned_start>')[1].split('<cleaned_end>')[0].strip()
+                if '<cleaned_start>' in str(text) and '<cleaned_end>' in str(text)
+                else str(text).strip()
+                for text in cleaned
+            ]
 
-                json_items = [{
-                    "raw_chunk": raw_chunk,
-                    "cleaned_chunk": cleaned_chunk
-                } for raw_chunk, cleaned_chunk in zip(raw_chunks, cleaned_extracted)]
+            json_items = [{
+                "raw_chunk": raw_chunk,
+                "cleaned_chunk": cleaned_chunk
+            } for raw_chunk, cleaned_chunk in zip(raw_chunks, cleaned_extracted)]
 
-                with open(chunk_path, "w", encoding="utf-8") as f:
-                    json.dump(json_items, f, ensure_ascii=False, indent=4)
-                LOG.info(f"Successfully cleaned contents in {chunk_path}")
+            with open(chunk_path, "w", encoding="utf-8") as f:
+                json.dump(json_items, f, ensure_ascii=False, indent=4)
+            LOG.info(f"Successfully cleaned contents in {chunk_path}")
 
-        results = []
-        for item, chunk_path in zip(data, chunk_paths):
-            new_item = item.copy()
-            new_item[output_key] = chunk_path
-            results.append(new_item)
-
-        LOG.info("Batch text cleaning completed!")
-        return results
+        result = data.copy()
+        result[output_key] = chunk_path
+        return result

@@ -154,78 +154,75 @@ class FileOrURLToMarkdownConverterBatch(kbc):
                 "3. Plaintext(TXT/MD): Directly passes through"
             )
 
-    def forward_batch_input(
+    def forward(
             self,
-            data: List[dict],
+            data: dict,
             input_key: str = "source",
             output_key: str = "text_path",
-    ) -> List[dict]:
+    ) -> dict:
         """
-        Convert files or URLs to Markdown.
+        Convert a single file or URL to Markdown.
 
         Args:
-            data: List of dict
-            input_key: Key for input sources
-            output_key: Key for output text paths
+            data: Single dict item
+            input_key: Key for input source
+            output_key: Key for output text path
 
         Returns:
-            List of dict with text paths added
+            Dict with text path added
         """
-        assert isinstance(data, list), "Input data must be a list of dict"
+        assert isinstance(data, dict), "Input data must be a dict"
 
-        LOG.info("Starting content extraction...")
-        output_file_all = []
+        content = data.get(input_key, "")
+        output_file = ""
 
-        for index, row in tqdm(enumerate(data), total=len(data), desc="Processing files"):
-            content = row.get(input_key, "")
+        # Generate unique filename based on hash or timestamp
+        import hashlib
+        import time
+        unique_id = hashlib.md5(content.encode()).hexdigest()[:8]
 
-            if is_url(content):
-                if is_pdf_url(content):
-                    pdf_save_path = os.path.join(self.intermediate_dir, f"crawled_{index}.pdf")
-                    download_pdf(content, pdf_save_path)
-                    content = pdf_save_path
-                else:
-                    output_file = os.path.join(self.intermediate_dir, f"crawled_{index}.md")
-                    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-                    output_file = _parse_xml_to_md(url=content, output_file=output_file)
-                    output_file_all.append(output_file)
-                    continue
-
-            raw_file = content
-            raw_file_name = os.path.splitext(os.path.basename(raw_file))[0]
-            raw_file_suffix = os.path.splitext(raw_file)[1].lower()
-            raw_file_suffix_no_dot = raw_file_suffix.lstrip(".")
-            output_file = os.path.join(self.intermediate_dir, f"{raw_file_name}_{raw_file_suffix_no_dot}.md")
-
-            if not os.path.exists(content):
-                LOG.error(f"File not found: {content}")
-                output_file_all.append("")
-                continue
-
-            ext = os.path.splitext(content)[1].lower()
-
-            if ext in [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"]:
-                LOG.info(f"Using MinerU backend: {self.mineru_backend}")
-                output_file = _parse_file_with_mineru(
-                    raw_file=content,
-                    output_file=self.intermediate_dir,
-                    mineru_backend=self.mineru_backend
-                )
-            elif ext in [".html", ".xml"]:
-                output_file = _parse_xml_to_md(raw_file=content, output_file=output_file)
-            elif ext in [".txt", ".md"]:
-                output_file = content
+        if is_url(content):
+            if is_pdf_url(content):
+                pdf_save_path = os.path.join(self.intermediate_dir, f"crawled_{unique_id}.pdf")
+                download_pdf(content, pdf_save_path)
+                content = pdf_save_path
             else:
-                LOG.error(f"Unsupported file type: {ext} for file {content}")
-                output_file = ""
+                output_file = os.path.join(self.intermediate_dir, f"crawled_{unique_id}.md")
+                os.makedirs(os.path.dirname(output_file), exist_ok=True)
+                output_file = _parse_xml_to_md(url=content, output_file=output_file)
+            result = data.copy()
+            result[output_key] = output_file
+            return result
 
-            output_file_all.append(output_file)
+        raw_file = content
+        if not os.path.exists(content):
+            LOG.error(f"File not found: {content}")
+            result = data.copy()
+            result[output_key] = ""
+            return result
 
-        results = []
-        for item, output_file in zip(data, output_file_all):
-            new_item = item.copy()
-            new_item[output_key] = output_file
-            results.append(new_item)
+        raw_file_name = os.path.splitext(os.path.basename(raw_file))[0]
+        raw_file_suffix = os.path.splitext(raw_file)[1].lower()
+        raw_file_suffix_no_dot = raw_file_suffix.lstrip(".")
+        output_file = os.path.join(self.intermediate_dir, f"{raw_file_name}_{raw_file_suffix_no_dot}.md")
 
-        LOG.info("Content extraction completed!")
-        return results
+        ext = os.path.splitext(content)[1].lower()
+
+        if ext in [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"]:
+            LOG.info(f"Using MinerU backend: {self.mineru_backend}")
+            output_file = _parse_file_with_mineru(
+                raw_file=content,
+                output_file=self.intermediate_dir,
+                mineru_backend=self.mineru_backend
+            )
+        elif ext in [".html", ".xml"]:
+            output_file = _parse_xml_to_md(raw_file=content, output_file=output_file)
+        elif ext in [".txt", ".md"]:
+            output_file = content
+        else:
+            LOG.error(f"Unsupported file type: {ext} for file {content}")
+            output_file = ""
+
+        result = data.copy()
+        result[output_key] = output_file
+        return result

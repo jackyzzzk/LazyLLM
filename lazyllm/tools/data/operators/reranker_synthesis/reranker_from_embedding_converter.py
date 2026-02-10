@@ -5,15 +5,21 @@ This operator converts embedding training data to reranker format.
 该算子将 Embedding 训练数据转换为 Reranker 格式。
 """
 import json
-import pandas as pd
+import random
 from pathlib import Path
 from typing import Optional, List
 from lazyllm import LOG
+from lazyllm.common.registry import LazyLLMRegisterMetaClass
 from ...base_data import data_register
 
-funcs = data_register.new_group('function')
-classes = data_register.new_group('class')
-class RerankerFromEmbeddingConverter(classes):
+# 获取或创建 reranker 分组
+if 'data' in LazyLLMRegisterMetaClass.all_clses and 'reranker' in LazyLLMRegisterMetaClass.all_clses['data']:
+    reranker = LazyLLMRegisterMetaClass.all_clses['data']['reranker'].base
+else:
+    reranker = data_register.new_group('reranker')
+
+
+class RerankerFromEmbeddingConverter(reranker):
     """
     Convert embedding training data to reranker format.
     将 Embedding 训练数据转换为 Reranker 格式。
@@ -24,13 +30,14 @@ class RerankerFromEmbeddingConverter(classes):
 
     This operator:
     1. Removes the prompt/instruction field
-    2. Optionally re-mines negatives for better reranker training
-    3. Adjusts negative count to match train_group_size
+    2. Adjusts negative count to match train_group_size
+    3. Pads negatives from duplicates if needed
 
     Args:
         remove_instruction: Whether to remove instruction/prompt fields (default: True)
         adjust_neg_count: Target number of negatives per sample (default: 7)
         output_file: Path to save converted data (optional)
+        seed: Random seed for reproducibility (default: 42)
     """
 
     def __init__(
@@ -38,10 +45,14 @@ class RerankerFromEmbeddingConverter(classes):
             remove_instruction: bool = True,
             adjust_neg_count: int = 7,
             output_file: Optional[str] = None,
+            seed: int = 42,
+            **kwargs
     ):
+        super().__init__(**kwargs)
         self.remove_instruction = remove_instruction
         self.adjust_neg_count = adjust_neg_count
         self.output_file = output_file
+        self.seed = seed
         LOG.info(f"Initializing {self.__class__.__name__}...")
 
     @staticmethod
@@ -68,22 +79,16 @@ class RerankerFromEmbeddingConverter(classes):
                 "- Maintains query-pos-neg format"
             )
 
-    def _load_embedding_data(self, file_path: str) -> List[dict]:
-        """Load embedding training data from file."""
-        data = []
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-            # Support both JSON array and JSONL formats
-            if content.startswith('['):
-                data = json.loads(content)
-            else:
-                f.seek(0)
-                for line in f:
-                    if line.strip():
-                        data.append(json.loads(line))
-        return data
+    def _save_to_file(self, result: dict):
+        """Save a single result to output file if specified."""
+        if self.output_file:
+            output_path = Path(self.output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def __call__(
+            with open(output_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(result, ensure_ascii=False) + '\n')
+
+    def forward(
             self,
             data,
             input_query_key: str = "query",
@@ -91,88 +96,53 @@ class RerankerFromEmbeddingConverter(classes):
             input_neg_key: str = "neg",
     ):
         """
-        Convert embedding data to reranker format.
+        Convert a single embedding sample to reranker format.
 
         Args:
-            data: List of dict, pandas DataFrame, or path to embedding data file
+            data: Dict containing query, pos, neg (and optionally prompt) fields
             input_query_key: Key for query field
             input_pos_key: Key for positive samples field
             input_neg_key: Key for negative samples field
 
         Returns:
-            List of dict in reranker format
+            Dict in reranker format (without prompt/instruction)
         """
-        # Load data if file path is provided
-        if isinstance(data, str):
-            LOG.info(f"Loading embedding data from {data}...")
-            data = self._load_embedding_data(data)
+        assert isinstance(data, dict), "Input data must be a dict"
 
-        if isinstance(data, pd.DataFrame):
-            dataframe = data
-        else:
-            dataframe = pd.DataFrame(data)
+        query = data.get(input_query_key, "")
+        pos = data.get(input_pos_key, [])
+        neg = data.get(input_neg_key, [])
 
-        LOG.info(f"Converting {len(dataframe)} embedding samples to reranker format...")
+        if not query:
+            LOG.warning("Empty query in data, skipping")
+            return []  # 返回空列表表示删除该数据
 
-        # Collect all negatives for padding if needed
-        all_negatives = []
-        for neg_list in dataframe[input_neg_key].tolist():
-            if isinstance(neg_list, list):
-                all_negatives.extend(neg_list)
-            elif neg_list:
-                all_negatives.append(neg_list)
+        # Ensure pos is a list
+        if not isinstance(pos, list):
+            pos = [pos] if pos else []
 
-        results = []
-        for _, row in dataframe.iterrows():
-            query = row.get(input_query_key, "")
-            pos = row.get(input_pos_key, [])
-            neg = row.get(input_neg_key, [])
+        # Ensure neg is a list
+        if not isinstance(neg, list):
+            neg = [neg] if neg else []
 
-            if not query:
-                continue
+        # Adjust negative count
+        if len(neg) > self.adjust_neg_count:
+            # Truncate to target count
+            neg = neg[:self.adjust_neg_count]
+        elif len(neg) < self.adjust_neg_count and neg:
+            # Pad with duplicates if needed (when we have some negatives)
+            random.seed(self.seed)
+            while len(neg) < self.adjust_neg_count:
+                neg.append(random.choice(neg))
 
-            # Ensure pos is a list
-            if not isinstance(pos, list):
-                pos = [pos] if pos else []
-
-            # Ensure neg is a list and adjust count
-            if not isinstance(neg, list):
-                neg = [neg] if neg else []
-
-            # Adjust negative count
-            if len(neg) < self.adjust_neg_count and all_negatives:
-                # Pad with random negatives from corpus
-                import random
-                additional = random.sample(
-                    all_negatives,
-                    min(self.adjust_neg_count - len(neg), len(all_negatives))
-                )
-                # Filter out any positives
-                pos_set = set(pos)
-                additional = [n for n in additional if n not in pos_set]
-                neg = (neg + additional)[:self.adjust_neg_count]
-            elif len(neg) > self.adjust_neg_count:
-                neg = neg[:self.adjust_neg_count]
-
-            # Build reranker format (no prompt/instruction)
-            reranker_item = {
-                "query": query,
-                "pos": pos,
-                "neg": neg,
-            }
-            results.append(reranker_item)
-
-        LOG.info(f"Converted {len(results)} samples to reranker format.")
+        # Build reranker format (no prompt/instruction)
+        reranker_item = {
+            "query": query,
+            "pos": pos,
+            "neg": neg,
+        }
 
         # Save to file if specified
-        if self.output_file:
-            output_path = Path(self.output_file)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._save_to_file(reranker_item)
 
-            with open(output_path, 'w', encoding='utf-8') as f:
-                for item in results:
-                    f.write(json.dumps(item, ensure_ascii=False) + '\n')
-            LOG.info(f"Saved reranker data to {output_path}")
-
-        return results
-
+        return reranker_item

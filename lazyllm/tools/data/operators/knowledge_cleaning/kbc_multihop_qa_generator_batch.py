@@ -172,64 +172,60 @@ class KBCMultiHopQAGeneratorBatch(kbc):
             examples.append(self.process_text(text, source))
         return examples
 
-    def forward_batch_input(
+    def forward(
             self,
-            data: List[dict],
+            data: dict,
             input_key: str = 'chunk_path',
             output_key: str = 'enhanced_chunk_path',
-    ) -> List[dict]:
+    ) -> dict:
         """
-        Generate multi-hop QA pairs from chunk files.
+        Generate multi-hop QA pairs from a single chunk file.
 
         Args:
-            data: List of dict
-            input_key: Key for input chunk file paths
-            output_key: Key for output enhanced chunk file paths
+            data: Single dict item
+            input_key: Key for input chunk file path
+            output_key: Key for output enhanced chunk file path
 
         Returns:
-            List of dict with enhanced chunk paths added
+            Dict with enhanced chunk path added
         """
-        assert isinstance(data, list), "Input data must be a list of dict"
+        assert isinstance(data, dict), "Input data must be a dict"
 
-        chunk_paths = [item.get(input_key, "") for item in data]
+        chunk_path = data.get(input_key, "")
 
-        for chunk_path in chunk_paths:
-            if chunk_path:
-                texts = []
-                if str(chunk_path).endswith(".json"):
-                    with open(chunk_path, "r", encoding="utf-8") as f:
-                        file_data = json.load(f)
-                    texts = [item.get("cleaned_chunk", "") for item in file_data]
-                elif str(chunk_path).endswith(".jsonl"):
-                    with open(chunk_path, "r", encoding="utf-8") as f:
-                        file_data = [json.loads(line) for line in f]
-                    texts = [item.get("cleaned_chunk", "") for item in file_data]
-                else:
-                    LOG.warning(f"Unsupported file format: {chunk_path}")
-                    continue
+        if chunk_path:
+            texts = []
+            if str(chunk_path).endswith(".json"):
+                with open(chunk_path, "r", encoding="utf-8") as f:
+                    file_data = json.load(f)
+                texts = [item.get("cleaned_chunk", "") for item in file_data]
+            elif str(chunk_path).endswith(".jsonl"):
+                with open(chunk_path, "r", encoding="utf-8") as f:
+                    file_data = [json.loads(line) for line in f]
+                texts = [item.get("cleaned_chunk", "") for item in file_data]
+            else:
+                LOG.warning(f"Unsupported file format: {chunk_path}")
+            result = data.copy()
+            result[output_key] = chunk_path
+            return result
 
-                # Generate QA pairs
-                qa_pairs_batch = self.process_batch(texts)
+        # Generate QA pairs
+        qa_pairs_batch = self.process_batch(texts)
 
-                # Write back to original data
-                for item, qa_result in zip(file_data, qa_pairs_batch):
-                    item["qa_pairs"] = qa_result
+        # Write back to original data
+        for item, qa_result in zip(file_data, qa_pairs_batch):
+            item["qa_pairs"] = qa_result
 
-                # Write back to file
-                with open(chunk_path, "w", encoding="utf-8") as f:
-                    if str(chunk_path).endswith(".json"):
-                        json.dump(file_data, f, ensure_ascii=False, indent=4)
-                    else:
-                        for item in file_data:
-                            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        # Write back to file
+        with open(chunk_path, "w", encoding="utf-8") as f:
+            if str(chunk_path).endswith(".json"):
+                json.dump(file_data, f, ensure_ascii=False, indent=4)
+            else:
+                for item in file_data:
+                    f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-                LOG.info(f"Generated multi-hop QA for {chunk_path}")
+        LOG.info(f"Generated multi-hop QA for {chunk_path}")
 
-        results = []
-        for item, chunk_path in zip(data, chunk_paths):
-            new_item = item.copy()
-            new_item[output_key] = chunk_path
-            results.append(new_item)
-
-        LOG.info("Multi-hop QA generation completed!")
-        return results
+        result = data.copy()
+        result[output_key] = chunk_path
+        return result

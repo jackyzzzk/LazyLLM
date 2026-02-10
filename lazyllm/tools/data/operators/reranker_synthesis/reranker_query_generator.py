@@ -5,26 +5,49 @@ This operator generates high-quality queries from document passages for reranker
 该算子从文档段落生成高质量的查询，用于 Reranker 模型训练。
 """
 import json
-import pandas as pd
 from typing import List, Optional
 from lazyllm import LOG
+from lazyllm.common.registry import LazyLLMRegisterMetaClass
 from ...base_data import data_register
 from ...prompts.reranker_synthesis import RerankerQueryGeneratorPrompt
 
-funcs = data_register.new_group('function')
-classes = data_register.new_group('class')
-class RerankerQueryGenerator(classes):
+# 获取或创建 reranker 分组
+if 'data' in LazyLLMRegisterMetaClass.all_clses and 'reranker' in LazyLLMRegisterMetaClass.all_clses['data']:
+    reranker = LazyLLMRegisterMetaClass.all_clses['data']['reranker'].base
+else:
+    reranker = data_register.new_group('reranker')
+
+
+class RerankerQueryGenerator(reranker):
+    """
+    Generate high-quality queries from document passages for reranker training.
+    从文档段落生成高质量查询用于 Reranker 训练。
+
+    This operator uses LLM to analyze document content and generate queries
+    of varying difficulty levels. Each passage can generate multiple queries,
+    resulting in expanded training data (one-to-many).
+
+    Args:
+        llm_serving: LLM service for query generation
+        num_queries: Number of queries to generate per passage (default: 3)
+        lang: Language for prompts ("zh" or "en")
+        difficulty_levels: List of difficulty levels (default: ["easy", "medium", "hard"])
+    """
+
     def __init__(
             self,
             llm_serving=None,
             num_queries: int = 3,
             lang: str = "zh",
             difficulty_levels: Optional[List[str]] = None,
+            **kwargs
     ):
+        super().__init__(**kwargs)
         self.llm_serving = llm_serving
         self.num_queries = num_queries
         self.lang = lang
         self.difficulty_levels = difficulty_levels or ["easy", "medium", "hard"]
+        self._prompt_template = RerankerQueryGeneratorPrompt(lang=self.lang)
         LOG.info(f"Initializing {self.__class__.__name__}...")
 
     @staticmethod
@@ -58,73 +81,72 @@ class RerankerQueryGenerator(classes):
         """Call LLM serving to generate responses."""
         if self.llm_serving is None:
             raise ValueError("LLM serving is not configured")
-        return self.llm_serving.generate_from_input(user_prompts, system_prompt)
 
-    def __call__(
-            self,
-            data,
-            input_key: str = "passage",
-            output_query_key: str = "query",
-    ):
+        llm = self.llm_serving.share(prompt=system_prompt)
+        llm.start()
+        results = []
+        for prompt in user_prompts:
+            try:
+                response = llm(prompt)
+                results.append(response)
+            except Exception as e:
+                LOG.warning(f"LLM call failed: {e}")
+                results.append("")
+        return results
+
+    def forward(self, data, input_key: str = "passage", output_query_key: str = "query"):
         """
-        Generate queries for each passage in the data.
+        Generate queries for a single passage.
 
         Args:
-            data: List of dict or pandas DataFrame containing passages
+            data: Dict containing passage
             input_key: Key for input passage field
             output_query_key: Key for output query field
 
         Returns:
-            List of dict with generated queries (expanded rows)
+            List of dict with generated queries (one-to-many expansion)
         """
-        if isinstance(data, pd.DataFrame):
-            dataframe = data
-        else:
-            dataframe = pd.DataFrame(data)
+        assert isinstance(data, dict), "Input data must be a dict"
 
-        LOG.info(f"Generating queries for {len(dataframe)} passages...")
+        passage = data.get(input_key, "")
+        if not passage:
+            LOG.warning(f"Empty passage in data, skipping")
+            return []
 
-        # Build prompts
-        prompt_template = RerankerQueryGeneratorPrompt(lang=self.lang)
-        system_prompt = prompt_template.build_system_prompt()
-
-        user_prompts = []
-        for passage in dataframe[input_key].tolist():
-            user_prompts.append(prompt_template.build_prompt(
-                passage=passage,
-                num_queries=self.num_queries,
-                difficulty_levels=self.difficulty_levels
-            ))
+        # Build prompt
+        system_prompt = self._prompt_template.build_system_prompt()
+        user_prompt = self._prompt_template.build_prompt(
+            passage=passage,
+            num_queries=self.num_queries,
+            difficulty_levels=self.difficulty_levels
+        )
 
         # Generate queries using LLM
-        responses = self._generate_from_llm(user_prompts, system_prompt)
+        responses = self._generate_from_llm([user_prompt], system_prompt)
+        response = responses[0] if responses else ""
 
-        # Parse responses and expand rows
+        # Parse response and expand rows
         expanded_rows = []
-        for idx, (row, response) in enumerate(zip(dataframe.to_dict('records'), responses)):
-            try:
-                parsed = json.loads(self._clean_json_block(response))
-                queries = parsed if isinstance(parsed, list) else parsed.get("queries", [])
+        try:
+            parsed = json.loads(self._clean_json_block(response))
+            queries = parsed if isinstance(parsed, list) else parsed.get("queries", [])
 
-                for query_item in queries:
-                    if isinstance(query_item, dict):
-                        query = query_item.get("query", "")
-                        difficulty = query_item.get("difficulty", "medium")
-                    else:
-                        query = str(query_item)
-                        difficulty = "medium"
+            for query_item in queries:
+                if isinstance(query_item, dict):
+                    query = query_item.get("query", "")
+                    difficulty = query_item.get("difficulty", "medium")
+                else:
+                    query = str(query_item)
+                    difficulty = "medium"
 
-                    if query.strip():
-                        new_row = row.copy()
-                        new_row[output_query_key] = query.strip()
-                        new_row["difficulty"] = difficulty
-                        new_row["pos"] = [row[input_key]]  # Positive sample is the source passage
-                        expanded_rows.append(new_row)
+                if query.strip():
+                    new_row = data.copy()
+                    new_row[output_query_key] = query.strip()
+                    new_row["difficulty"] = difficulty
+                    new_row["pos"] = [passage]  # Positive sample is the source passage
+                    expanded_rows.append(new_row)
 
-            except Exception as e:
-                LOG.warning(f"Failed to parse response at idx={idx}: {e}")
-                continue
+        except Exception as e:
+            LOG.warning(f"Failed to parse LLM response: {e}")
 
-        LOG.info(f"Generated {len(expanded_rows)} query-passage pairs from {len(dataframe)} passages.")
         return expanded_rows
-

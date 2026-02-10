@@ -128,69 +128,62 @@ class KBCChunkGeneratorBatch(kbc):
                 texts.append("")
         return texts
 
-    def forward_batch_input(
+    def forward(
             self,
-            data: List[dict],
+            data: dict,
             input_key: str = "text_path",
             output_key: str = "chunk_path",
-    ) -> List[dict]:
+    ) -> dict:
         """
-        Perform batch text splitting and save results to files.
+        Perform text splitting and save results to file for a single item.
 
         Args:
-            data: List of dict
-            input_key: Key for input text file paths
-            output_key: Key for output chunk file paths
+            data: Single dict item
+            input_key: Key for input text file path
+            output_key: Key for output chunk file path
 
         Returns:
-            List of dict with chunk paths added
+            Dict with chunk path added
         """
-        assert isinstance(data, list), "Input data must be a list of dict"
+        assert isinstance(data, dict), "Input data must be a dict"
         self._ensure_initialized()
 
-        text_paths = [item.get(input_key, "") for item in data]
-        texts = self._load_text(text_paths)
-        output_paths = []
+        text_path = data.get(input_key, "")
+        texts = self._load_text([text_path])
+        text = texts[0] if texts else ""
 
-        for i, text in enumerate(texts):
-            if text:
-                tokens = self.tokenizer.encode(text)
-                total_tokens = len(tokens)
-                max_tokens = self.tokenizer.model_max_length
+        if text:
+            tokens = self.tokenizer.encode(text)
+            total_tokens = len(tokens)
+            max_tokens = self.tokenizer.model_max_length
 
-                if total_tokens <= max_tokens:
-                    chunks = self.chunker(text)
-                else:
-                    x = (total_tokens + max_tokens - 1) // max_tokens
-                    words = text.split()
-                    words_per_chunk = (len(words) + x - 1) // x
-
-                    chunks = []
-                    for j in range(0, len(words), words_per_chunk):
-                        chunk_text = ' '.join(words[j:j + words_per_chunk])
-                        chunks.extend(self.chunker(chunk_text))
-
-                json_chunks = [{
-                    "raw_chunk": chunk.text,
-                } for chunk in chunks]
-
-                output_dir = "/".join([os.path.dirname(text_paths[i]), "extract"])
-                os.makedirs(output_dir, exist_ok=True)
-                file_name = os.path.splitext(os.path.basename(text_paths[i]))[0] + '_chunk.json'
-                output_path = os.path.join(output_dir, file_name)
-                output_paths.append(output_path)
-
-                with open(output_path, "w", encoding="utf-8") as f:
-                    json.dump(json_chunks, f, ensure_ascii=False, indent=4)
-                LOG.info(f"Successfully split {text_paths[i]} into {len(chunks)} chunks.")
+            if total_tokens <= max_tokens:
+                chunks = self.chunker(text)
             else:
-                output_paths.append("")
+                x = (total_tokens + max_tokens - 1) // max_tokens
+                words = text.split()
+                words_per_chunk = (len(words) + x - 1) // x
 
-        results = []
-        for item, output_path in zip(data, output_paths):
-            new_item = item.copy()
-            new_item[output_key] = output_path
-            results.append(new_item)
+                chunks = []
+                for j in range(0, len(words), words_per_chunk):
+                    chunk_text = ' '.join(words[j:j + words_per_chunk])
+                    chunks.extend(self.chunker(chunk_text))
 
-        LOG.info(f"Successfully split text for {len(text_paths)} files.")
-        return results
+            json_chunks = [{
+                "raw_chunk": chunk.text,
+            } for chunk in chunks]
+
+            output_dir = "/".join([os.path.dirname(text_path), "extract"])
+            os.makedirs(output_dir, exist_ok=True)
+            file_name = os.path.splitext(os.path.basename(text_path))[0] + '_chunk.json'
+            output_path = os.path.join(output_dir, file_name)
+
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(json_chunks, f, ensure_ascii=False, indent=4)
+            LOG.info(f"Successfully split {text_path} into {len(chunks)} chunks.")
+        else:
+            output_path = ""
+
+        result = data.copy()
+        result[output_key] = output_path
+        return result

@@ -4,17 +4,22 @@ Reranker Hard Negative Miner Operator
 This operator mines hard negative samples specifically optimized for reranker model training.
 该算子专门为 Reranker 模型训练挖掘困难负样本。
 """
-import json
 import random
 import numpy as np
-import pandas as pd
 from typing import List, Optional
+from lazyllm.thirdparty import numpy as np, bm25s, jieba, Stemmer
 from lazyllm import LOG
+from lazyllm.common.registry import LazyLLMRegisterMetaClass
 from ...base_data import data_register
 
-funcs = data_register.new_group('function')
-classes = data_register.new_group('class')
-class RerankerHardNegativeMiner(classes):
+# 获取或创建 reranker 分组
+if 'data' in LazyLLMRegisterMetaClass.all_clses and 'reranker' in LazyLLMRegisterMetaClass.all_clses['data']:
+    reranker = LazyLLMRegisterMetaClass.all_clses['data']['reranker'].base
+else:
+    reranker = data_register.new_group('reranker')
+
+
+class RerankerHardNegativeMiner(reranker):
     """
     Mine hard negative samples optimized for reranker training.
     为 Reranker 训练挖掘优化的困难负样本。
@@ -29,6 +34,11 @@ class RerankerHardNegativeMiner(classes):
     - bm25: BM25-based lexical similarity (good for lexical confusers)
     - semantic: Embedding-based semantic similarity (good for semantic confusers)
     - mixed: Combination of BM25 and semantic negatives
+
+    This operator uses forward_batch_input because it needs to:
+    1. Build a global corpus from all positive samples
+    2. Build BM25 index once for the entire corpus
+    3. Compute corpus embeddings once for semantic mining
 
     Args:
         mining_strategy: Strategy for mining negatives ("random", "bm25", "semantic", "mixed")
@@ -45,13 +55,16 @@ class RerankerHardNegativeMiner(classes):
             embedding_serving=None,
             bm25_ratio: float = 0.5,
             seed: int = 42,
+            **kwargs
     ):
+        super().__init__(**kwargs)
         self.mining_strategy = mining_strategy
         self.num_negatives = num_negatives
         self.embedding_serving = embedding_serving
         self.bm25_ratio = bm25_ratio
         self.seed = seed
         self._bm25 = None
+        self._corpus = None
         self._corpus_embeddings = None
         LOG.info(f"Initializing {self.__class__.__name__} with strategy: {mining_strategy}")
 
@@ -80,15 +93,19 @@ class RerankerHardNegativeMiner(classes):
             )
 
     def _init_bm25(self, corpus: List[str]):
-        """Initialize BM25 index for lexical similarity mining."""
-        try:
-            from rank_bm25 import BM25Okapi
-            tokenized_corpus = [doc.lower().split() for doc in corpus]
-            self._bm25 = BM25Okapi(tokenized_corpus)
-            LOG.info("BM25 index initialized successfully.")
-        except ImportError:
-            LOG.error("rank_bm25 not installed. Please run: pip install rank-bm25")
-            raise
+        """Initialize BM25 index for lexical similarity mining.
+        """
+        LOG.info(f"Initializing BM25 index for {len(corpus)} documents...")
+        self._corpus = corpus
+        corpus_tokens = bm25s.tokenize(
+            [self._tokenizer(doc) for doc in corpus],
+            stopwords=self._stopwords,
+            stemmer=self._stemmer,
+        )
+        self._bm25 = bm25s.BM25()
+        self._bm25.index(corpus_tokens)
+        LOG.info("BM25 index initialized successfully.")
+
 
     def _compute_corpus_embeddings(self, corpus: List[str]):
         """Compute embeddings for the entire corpus."""
@@ -96,57 +113,89 @@ class RerankerHardNegativeMiner(classes):
             raise ValueError("Embedding serving is required for semantic mining strategy")
 
         LOG.info(f"Computing embeddings for {len(corpus)} documents...")
-        self._corpus_embeddings = self.embedding_serving.generate_embedding_from_input(corpus)
+        self._corpus_embeddings = self.embedding_serving(corpus)
         self._corpus_embeddings = np.array(self._corpus_embeddings)
+        self._corpus = corpus
         LOG.info("Corpus embeddings computed successfully.")
 
     def _mine_random(self, query: str, pos_set: set, corpus: List[str], num: int) -> List[str]:
         """Mine negatives using random sampling."""
-        random.seed(self.seed)
         candidates = [doc for doc in corpus if doc not in pos_set]
         if len(candidates) <= num:
             return candidates
         return random.sample(candidates, num)
 
-    def _mine_bm25(self, query: str, pos_set: set, corpus: List[str], num: int) -> List[str]:
-        """Mine negatives using BM25 similarity."""
-        if self._bm25 is None:
+    def _mine_bm25(self, query: str, pos_set: set, corpus: List[str]) -> List[str]:
+        """Mine negatives using BM25 similarity.
+        
+        """
+        if self._bm25 is None or self._corpus != corpus:
             self._init_bm25(corpus)
 
-        tokenized_query = query.lower().split()
-        scores = self._bm25.get_scores(tokenized_query)
+        # Tokenize query using the same method as corpus
+        tokenized_query = bm25s.tokenize(
+            self._tokenizer(query),
+            stopwords=self._stopwords,
+            stemmer=self._stemmer
+        )
 
-        # Sort by score descending, filter out positives
-        scored_docs = [(score, doc) for score, doc in zip(scores, corpus) if doc not in pos_set]
-        scored_docs.sort(key=lambda x: x[0], reverse=True)
+        # Retrieve all documents with scores
+        k = min(len(corpus), self.num_negatives + len(pos_set) + 10)  # Get more than needed
+        indices, scores = self._bm25.retrieve(tokenized_query, k=k)
 
-        # Take top-k as hard negatives (high BM25 score but not positive)
-        return [doc for _, doc in scored_docs[:num]]
+        # Filter out positives and take top-k
+        results = []
+        for idx, score in zip(indices[0], scores[0]):
+            doc = corpus[idx]
+            if doc not in pos_set:
+                results.append(doc)
+                if len(results) >= self.num_negatives:
+                    break
 
-    def _mine_semantic(self, query: str, pos_set: set, corpus: List[str], num: int) -> List[str]:
-        """Mine negatives using semantic similarity."""
-        if self._corpus_embeddings is None:
+        return results
+
+    def _cosine_similarity(self, query_embedding: np.ndarray, corpus_embeddings: np.ndarray) -> np.ndarray:
+        """Compute cosine similarity between query and corpus.
+
+        """
+        # Normalize query
+        query_norm = np.linalg.norm(query_embedding)
+        if query_norm > 0:
+            query_embedding = query_embedding / query_norm
+
+        # Normalize corpus
+        corpus_norms = np.linalg.norm(corpus_embeddings, axis=1, keepdims=True)
+        corpus_norms = np.where(corpus_norms > 0, corpus_norms, 1)  # Avoid division by zero
+        corpus_normalized = corpus_embeddings / corpus_norms
+
+        # Compute cosine similarity
+        similarities = np.dot(corpus_normalized, query_embedding)
+        return similarities
+
+    def _mine_semantic(self, query: str, pos_set: set, corpus: List[str]) -> List[str]:
+        """Mine negatives using semantic similarity.
+        """
+        if self._corpus_embeddings is None or self._corpus != corpus:
             self._compute_corpus_embeddings(corpus)
 
         # Get query embedding
-        query_embedding = self.embedding_serving.generate_embedding_from_input([query])[0]
+        query_embedding = self.embedding_serving([query])[0]
         query_embedding = np.array(query_embedding)
 
         # Compute cosine similarity
-        similarities = np.dot(self._corpus_embeddings, query_embedding) / (
-            np.linalg.norm(self._corpus_embeddings, axis=1) * np.linalg.norm(query_embedding) + 1e-8
-        )
+        similarities = self._cosine_similarity(query_embedding, self._corpus_embeddings)
 
         # Sort by similarity descending, filter out positives
         scored_docs = [(sim, doc) for sim, doc in zip(similarities, corpus) if doc not in pos_set]
         scored_docs.sort(key=lambda x: x[0], reverse=True)
 
-        # Take top-k as hard negatives
-        return [doc for _, doc in scored_docs[:num]]
+        # Take top-k as hard negatives (high similarity but not positive)
+        return [doc for _, doc in scored_docs[:self.num_negatives]]
+
 
     def _mine_mixed(self, query: str, pos_set: set, corpus: List[str], num: int) -> List[str]:
         """Mine negatives using mixed strategy (BM25 + semantic)."""
-        num_bm25 = int(num * self.bm25_ratio)
+        num_bm25 = max(1, int(num * self.bm25_ratio))
         num_semantic = num - num_bm25
 
         bm25_negs = self._mine_bm25(query, pos_set, corpus, num_bm25)
@@ -156,19 +205,19 @@ class RerankerHardNegativeMiner(classes):
 
         return bm25_negs + semantic_negs
 
-    def __call__(
+    def forward_batch_input(
             self,
-            data,
+            data: List[dict],
             input_query_key: str = "query",
             input_pos_key: str = "pos",
             output_neg_key: str = "neg",
             corpus: Optional[List[str]] = None,
-    ):
+    ) -> List[dict]:
         """
         Mine hard negative samples for each query.
 
         Args:
-            data: List of dict or pandas DataFrame with query-pos pairs
+            data: List of dict with query-pos pairs
             input_query_key: Key for query field
             input_pos_key: Key for positive samples field (list of passages)
             output_neg_key: Key for output negative samples field
@@ -177,23 +226,24 @@ class RerankerHardNegativeMiner(classes):
         Returns:
             List of dict with mined hard negatives added
         """
-        if isinstance(data, pd.DataFrame):
-            dataframe = data
-        else:
-            dataframe = pd.DataFrame(data)
+        assert isinstance(data, list), "Input data must be a list"
 
         # Build corpus from data if not provided
         if corpus is None:
             # Extract unique passages from all positive samples
             all_passages = []
-            for pos_list in dataframe[input_pos_key].tolist():
+            for item in data:
+                pos_list = item.get(input_pos_key, [])
                 if isinstance(pos_list, list):
                     all_passages.extend(pos_list)
                 else:
                     all_passages.append(pos_list)
             corpus = list(set(all_passages))
 
-        LOG.info(f"Mining hard negatives for {len(dataframe)} queries from corpus of {len(corpus)} documents...")
+        LOG.info(f"Mining hard negatives for {len(data)} queries from corpus of {len(corpus)} documents...")
+
+        # Set random seed for reproducibility
+        random.seed(self.seed)
 
         # Select mining function
         if self.mining_strategy == "random":
@@ -209,9 +259,9 @@ class RerankerHardNegativeMiner(classes):
 
         # Mine negatives for each query
         results = []
-        for _, row in dataframe.iterrows():
-            query = row[input_query_key]
-            pos_samples = row[input_pos_key]
+        for item in data:
+            query = item.get(input_query_key, "")
+            pos_samples = item.get(input_pos_key, [])
 
             # Convert to set for fast lookup
             if isinstance(pos_samples, list):
@@ -222,10 +272,9 @@ class RerankerHardNegativeMiner(classes):
             # Mine hard negatives
             negatives = mine_func(query, pos_set, corpus)
 
-            new_row = row.to_dict()
+            new_row = item.copy()
             new_row[output_neg_key] = negatives
             results.append(new_row)
 
         LOG.info(f"Hard negative mining completed for {len(results)} samples.")
         return results
-

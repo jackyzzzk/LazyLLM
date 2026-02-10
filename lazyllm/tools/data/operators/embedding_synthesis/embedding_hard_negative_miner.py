@@ -62,11 +62,9 @@ class EmbeddingHardNegativeMiner(embedding):
             embedding_serving=None,
             language: str = "zh",
             seed: int = 42,
-            _concurrency_mode: str = 'single',
-            _save_data: bool = True,
             **kwargs
     ):
-        super().__init__(_concurrency_mode=_concurrency_mode, _save_data=_save_data, **kwargs)
+        super().__init__(**kwargs)
         self.mining_strategy = mining_strategy
         self.num_negatives = num_negatives
         self.embedding_serving = embedding_serving
@@ -130,7 +128,6 @@ class EmbeddingHardNegativeMiner(embedding):
 
     def _init_bm25(self, corpus: List[str]):
         """Initialize BM25 index for lexical similarity mining.
-        参考 lazyllm/tools/rag/component/bm25.py 的实现。
         """
         LOG.info(f"Initializing BM25 index for {len(corpus)} documents...")
         self._corpus = corpus
@@ -145,14 +142,13 @@ class EmbeddingHardNegativeMiner(embedding):
 
     def _compute_corpus_embeddings(self, corpus: List[str]):
         """Compute embeddings for the entire corpus.
-        使用 lazyllm.thirdparty.numpy 进行向量计算。
         """
         if self.embedding_serving is None:
             raise ValueError("Embedding serving is required for semantic mining strategy")
 
         LOG.info(f"Computing embeddings for {len(corpus)} documents...")
         self._corpus = corpus
-        self._corpus_embeddings = self.embedding_serving.generate_embedding_from_input(corpus)
+        self._corpus_embeddings = self.embedding_serving(corpus)
         self._corpus_embeddings = np.array(self._corpus_embeddings)
         LOG.info("Corpus embeddings computed successfully.")
 
@@ -166,7 +162,7 @@ class EmbeddingHardNegativeMiner(embedding):
 
     def _mine_bm25(self, query: str, pos_set: set, corpus: List[str]) -> List[str]:
         """Mine negatives using BM25 similarity.
-        参考 lazyllm/tools/rag/component/bm25.py 的 retrieve 方法。
+        
         """
         if self._bm25 is None or self._corpus != corpus:
             self._init_bm25(corpus)
@@ -195,7 +191,6 @@ class EmbeddingHardNegativeMiner(embedding):
 
     def _cosine_similarity(self, query_embedding: np.ndarray, corpus_embeddings: np.ndarray) -> np.ndarray:
         """Compute cosine similarity between query and corpus.
-        参考 lazyllm/tools/rag/similarity.py 的 cosine 函数。
         """
         # Normalize query
         query_norm = np.linalg.norm(query_embedding)
@@ -213,13 +208,12 @@ class EmbeddingHardNegativeMiner(embedding):
 
     def _mine_semantic(self, query: str, pos_set: set, corpus: List[str]) -> List[str]:
         """Mine negatives using semantic similarity.
-        使用 lazyllm.thirdparty.numpy 计算余弦相似度。
         """
         if self._corpus_embeddings is None or self._corpus != corpus:
             self._compute_corpus_embeddings(corpus)
 
         # Get query embedding
-        query_embedding = self.embedding_serving.generate_embedding_from_input([query])[0]
+        query_embedding = self.embedding_serving([query])[0]
         query_embedding = np.array(query_embedding)
 
         # Compute cosine similarity

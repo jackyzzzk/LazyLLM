@@ -97,34 +97,121 @@ def _batch_parse_html_or_xml(items: list):
     return results
 
 
+def _batch_parse_pdf_with_mineru_api(pdf_items: list, output_dir: str,
+                                     mineru_url: str, mineru_backend: str,
+                                     upload_mode: bool = True):
+    """
+    Batch parse PDFs using MinerU API via lazyllm.tools.rag.MineruPDFReader.
+
+    Args:
+        pdf_items: List of dict, each has 'index', 'raw_path', 'output_path'
+        output_dir: Base output directory for markdown files
+        mineru_url: MinerU API server URL (e.g. 'http://10.119.30.80:20234')
+        mineru_backend: MinerU backend name
+        upload_mode: Whether to upload file content (True) or pass file path (False)
+
+    Returns:
+        Dict[int, str]: mapping from index -> markdown file path
+    """
+    from lazyllm.tools.rag import MineruPDFReader
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    reader = MineruPDFReader(
+        url=mineru_url,
+        backend=mineru_backend,
+        upload_mode=upload_mode,
+        split_doc=False,  # 合并为完整文档，不拆分
+    )
+
+    parsed_results = {}
+
+    for item in tqdm(pdf_items, desc="Parsing PDFs via MinerU API"):
+        raw_path = item["raw_path"]
+        output_path = item["output_path"]
+        idx = item["index"]
+
+        try:
+            docs = reader(file=raw_path, use_cache=False)
+
+            if docs:
+                # 合并所有 DocNode 的文本
+                md_content = "\n".join(doc.text for doc in docs if doc.text)
+
+                if md_content.strip():
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        f.write(md_content)
+                    LOG.info(f"MinerU parsed: {raw_path} -> {output_path}")
+                    parsed_results[idx] = output_path
+                else:
+                    LOG.warning(f"MinerU returned empty content for: {raw_path}")
+                    parsed_results[idx] = ""
+            else:
+                LOG.warning(f"MinerU returned no documents for: {raw_path}")
+                parsed_results[idx] = ""
+
+        except Exception as e:
+            LOG.error(f"MinerU API failed for {raw_path}: {e}")
+            parsed_results[idx] = ""
+
+    return parsed_results
+
+
 class FileOrURLToMarkdownConverterAPI(kbc):
     """
     Knowledge extractor using MinerU API for PDF processing.
     知识提取算子：通过 MinerU API 处理 PDF 文件。
+
+    Usage:
+        converter = FileOrURLToMarkdownConverterAPI(
+            mineru_url='http://10.119.30.80:20234',
+            mineru_backend='vlm-vllm-async-engine',
+            upload_mode=True,
+        )
+        results = converter([{'source': 'path/to/file.pdf'}])
     """
 
     def __init__(
             self,
             intermediate_dir: str = "intermediate",
-            mineru_backend: str = "vlm",
+            mineru_url: str = None,
+            mineru_backend: str = "vlm-vllm-async-engine",
+            upload_mode: bool = True,
             **kwargs
     ):
         super().__init__(**kwargs)
         self.intermediate_dir = intermediate_dir
         os.makedirs(self.intermediate_dir, exist_ok=True)
+        self.mineru_url = mineru_url
         self.mineru_backend = mineru_backend
+        self.upload_mode = upload_mode
 
     @staticmethod
     def get_desc(lang: str = "zh"):
         if lang == "zh":
             return (
-                "知识提取算子：通过 MinerU API 处理 PDF 文件\n"
-                "设置 MINERU_API_KEY 环境变量以使用 API"
+                "知识提取算子：通过 MinerU API 处理 PDF/图片文件\n"
+                "核心功能：\n"
+                "1. PDF/图片文件：通过 MinerU API 提取文本/表格/公式\n"
+                "2. 网页内容(HTML/XML)：使用 trafilatura 提取正文\n"
+                "3. 纯文本(TXT/MD)：直接透传不做处理\n\n"
+                "初始化参数：\n"
+                "• mineru_url: MinerU API 服务地址 (如 'http://10.119.30.80:20234')\n"
+                "• mineru_backend: MinerU 解析后端 (默认 'vlm-vllm-async-engine')\n"
+                "• upload_mode: 是否上传文件内容 (默认 True)"
             )
         else:
             return (
                 "Knowledge Extractor using MinerU API for PDF processing\n"
-                "Set MINERU_API_KEY environment variable to use the API"
+                "Key Features:\n"
+                "1. PDF/Images: Uses MinerU API to extract text/tables/formulas\n"
+                "2. Web(HTML/XML): Extracts main content using trafilatura\n"
+                "3. Plaintext(TXT/MD): Directly passes through\n\n"
+                "Parameters:\n"
+                "• mineru_url: MinerU API server URL (e.g. 'http://10.119.30.80:20234')\n"
+                "• mineru_backend: MinerU backend (default 'vlm-vllm-async-engine')\n"
+                "• upload_mode: Whether to upload file content (default True)"
             )
 
     def forward_batch_input(
@@ -134,7 +221,7 @@ class FileOrURLToMarkdownConverterAPI(kbc):
             output_key: str = "text_path",
     ) -> List[dict]:
         """
-        Convert files or URLs to Markdown using API.
+        Convert files or URLs to Markdown using MinerU API.
 
         Args:
             data: List of dict
@@ -146,7 +233,13 @@ class FileOrURLToMarkdownConverterAPI(kbc):
         """
         assert isinstance(data, list), "Input data must be a list of dict"
 
-        LOG.info("Starting content extraction (batch mode)...")
+        if self.mineru_url is None:
+            raise ValueError(
+                "mineru_url is required. Please provide the MinerU API server URL, "
+                "e.g. FileOrURLToMarkdownConverterAPI(mineru_url='http://10.119.30.80:20234')"
+            )
+
+        LOG.info("Starting content extraction (API mode)...")
         normalized = []
 
         # Stage 1: normalize inputs
@@ -195,10 +288,15 @@ class FileOrURLToMarkdownConverterAPI(kbc):
             results.update(_batch_parse_html_or_xml(html_items))
 
         if pdf_items:
-            # For PDF items, we would use MinerU API if available
-            LOG.warning("PDF processing via API requires MINERU_API_KEY environment variable")
-            for item in pdf_items:
-                results[item["index"]] = ""
+            results.update(
+                _batch_parse_pdf_with_mineru_api(
+                    pdf_items,
+                    output_dir=self.intermediate_dir,
+                    mineru_url=self.mineru_url,
+                    mineru_backend=self.mineru_backend,
+                    upload_mode=self.upload_mode,
+                )
+            )
 
         for item in text_items:
             results[item["index"]] = item.get("raw_path", "")
