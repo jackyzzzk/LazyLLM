@@ -1,64 +1,170 @@
 """
-Embedding Data Augmentor Operator
+Embedding Data Augmentor Operators
 
-This operator augments embedding training data through various techniques.
-该算子通过多种技术增强 Embedding 训练数据。
-
-原始算法参考：
-1. DataFlow/dataflow/operators/text_sft/generate/condor_generator.py (CondorGenerator - 使用 LLM 生成变体)
-2. DataFlow/dataflow/operators/text_sft/generate/sft_generator_from_seed.py (基于种子生成)
-
-核心思想：通过 LLM 改写、同义词替换等方法增强查询数据的多样性，
-         提升 Embedding 模型的泛化能力。
+This module provides operators for augmenting embedding training data through various techniques.
 """
 import json
 import random
 from typing import List, Optional
 from lazyllm import LOG
 from lazyllm.common.registry import LazyLLMRegisterMetaClass
+from lazyllm.components.formatter import JsonFormatter
 from ...base_data import data_register
 from ...prompts.embedding_synthesis import EmbeddingQueryAugmentPrompt
 
-# 复用已存在的 embedding 组
+# Get or create embedding group
 if 'data' in LazyLLMRegisterMetaClass.all_clses and 'embedding' in LazyLLMRegisterMetaClass.all_clses['data']:
     embedding = LazyLLMRegisterMetaClass.all_clses['data']['embedding'].base
 else:
     embedding = data_register.new_group('embedding')
 
 
-class EmbeddingDataAugmentor(embedding):
+def _clean_json_block(text: str) -> str:
+    """Clean JSON code block markers from LLM output."""
+    return text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+
+
+class EmbeddingQueryRewrite(embedding):
     """
-    Augment embedding training data through various techniques.
-    通过多种技术增强 Embedding 训练数据。
-
-    原始算法：参考 DataFlow CondorGenerator 和 SFTGeneratorSeed，使用 LLM 生成语义等价的查询变体。
-
-    Augmentation techniques:
-    - query_rewrite: Use LLM to rewrite queries with different expressions (参考 CondorGenerator)
-    - back_translation: Translate and back-translate queries
-    - synonym_replace: Replace words with synonyms
-    - query_expansion: Expand queries with related terms
-
-    Args:
-        llm_serving: LLM serving instance for augmentation
-        augment_methods: List of augmentation methods to apply
-        num_augments: Number of augmented samples per original (default: 2)
-        lang: Language for prompts ("zh" or "en", default: "zh")
-        _concurrency_mode: Concurrency mode ('process', 'thread', 'single')
-        _save_data: Whether to save intermediate data
+    Operator for augmenting queries by rewriting with LLM.
+    Generates semantically equivalent query variations.
     """
 
     def __init__(
-            self,
-            llm=None,
-            augment_methods: Optional[List[str]] = None,
-            num_augments: int = 2,
-            lang: str = "zh",
-            _concurrency_mode: str = 'single',
-            _save_data: bool = True,
-            **kwargs
+        self,
+        llm=None,
+        num_augments: int = 2,
+        lang: str = "zh",
+        **kwargs
     ):
-        super().__init__(_concurrency_mode=_concurrency_mode, _save_data=_save_data, **kwargs)
+        super().__init__(_concurrency_mode='thread', **kwargs)
+        self.num_augments = num_augments
+        self.lang = lang
+        self.prompt_template = EmbeddingQueryAugmentPrompt(lang=lang)
+        
+        # Initialize LLM serve with system prompt and formatter
+        if llm is not None:
+            system_prompt = self.prompt_template.build_system_prompt()
+            self._llm_serve = llm.share().prompt(system_prompt).formatter(JsonFormatter())
+            self._llm_serve.start()
+        else:
+            self._llm_serve = None
+
+    def forward(self, data: dict) -> List[dict]:
+        """
+        Rewrite a single query and return list of augmented samples.
+        
+        Returns:
+            List of dict with augmented queries (returns list to expand data)
+        """
+        if self._llm_serve is None:
+            raise ValueError("LLM is not configured")
+
+        query = data.get('query', '')
+        if not query:
+            return []
+
+        user_prompt = self.prompt_template.build_prompt(query=query, num_rewrites=self.num_augments)
+
+        try:
+            result = self._llm_serve(user_prompt)
+            
+            # Parse result from JsonFormatter
+            # Note: JsonFormatter has already parsed the response
+            # If result is a string, it means parsing failed
+            rewrites = []
+            if isinstance(result, list):
+                rewrites = result
+            elif isinstance(result, dict):
+                rewrites = result.get("rewrites", [])
+            elif isinstance(result, str):
+                # JsonFormatter failed to parse, skip
+                LOG.warning(f"JsonFormatter failed to parse response, skipping: {result[:100]}...")
+                return []
+
+            # Create augmented samples
+            augmented = []
+            for rewrite in rewrites:
+                rewrite_str = str(rewrite).strip()
+                if rewrite_str and rewrite_str != query:
+                    new_row = data.copy()
+                    new_row['query'] = rewrite_str
+                    new_row["is_augmented"] = True
+                    new_row["augment_method"] = "query_rewrite"
+                    augmented.append(new_row)
+            
+            return augmented
+        except Exception as e:
+            LOG.warning(f"Failed to rewrite query: {e}")
+            return []
+
+
+class EmbeddingSynonymReplace(embedding):
+    """
+    Operator for augmenting queries by random synonym replacement (rule-based).
+    Simple character-level augmentation for Chinese, word-level for English.
+    """
+
+    def __init__(
+        self,
+        num_augments: int = 2,
+        **kwargs
+    ):
+        # Rule-based operation, use process mode for CPU-bound tasks
+        super().__init__(_concurrency_mode='process', **kwargs)
+        self.num_augments = num_augments
+
+    def forward(self, data: dict) -> List[dict]:
+        """
+        Apply synonym replacement augmentation to a single query.
+        
+        Returns:
+            List of dict with augmented queries
+        """
+        query = data.get('query', '')
+        if not query:
+            return []
+
+        augmented = []
+        words = query.split()
+        
+        for _ in range(self.num_augments):
+            if len(words) > 2:
+                # Randomly swap two adjacent words as simple augmentation
+                idx = random.randint(0, len(words) - 2)
+                new_words = words.copy()
+                new_words[idx], new_words[idx + 1] = new_words[idx + 1], new_words[idx]
+                new_query = " ".join(new_words)
+                
+                if new_query != query:
+                    new_row = data.copy()
+                    new_row['query'] = new_query
+                    new_row["is_augmented"] = True
+                    new_row["augment_method"] = "synonym_replace"
+                    augmented.append(new_row)
+            else:
+                # Keep original if too short
+                break
+
+        return augmented
+
+
+# Keep the original class for backward compatibility
+class EmbeddingDataAugmentor(embedding):
+    """
+    Legacy operator for augmenting embedding training data.
+    Uses the new pipeline operators internally.
+    """
+
+    def __init__(
+        self,
+        llm=None,
+        augment_methods: Optional[List[str]] = None,
+        num_augments: int = 2,
+        lang: str = "zh",
+        **kwargs
+    ):
+        super().__init__(rewrite_func='forward_batch_input', **kwargs)
         self.llm = llm
         self.augment_methods = augment_methods or ["query_rewrite"]
         self.num_augments = num_augments
@@ -70,11 +176,9 @@ class EmbeddingDataAugmentor(embedding):
         if lang == "zh":
             return (
                 "EmbeddingDataAugmentor 算子用于增强 Embedding 训练数据。\n\n"
-                "原始算法：参考 DataFlow CondorGenerator（LLM 生成变体）\n"
                 "核心功能：\n"
                 "- 查询改写：使用 LLM 生成语义等价的不同表达\n"
-                "- 同义词替换：替换查询中的词汇为同义词\n"
-                "- 查询扩展：添加相关术语扩展查询\n\n"
+                "- 同义词替换：替换查询中的词汇为同义词\n\n"
                 "输入参数：\n"
                 "- input_query_key: 查询字段名（默认：'query'）\n"
                 "- output_query_key: 增强后查询字段名（默认：'query'）\n\n"
@@ -83,135 +187,70 @@ class EmbeddingDataAugmentor(embedding):
         else:
             return (
                 "EmbeddingDataAugmentor augments embedding training data.\n\n"
-                "Original Algorithm: Based on DataFlow CondorGenerator (LLM-based variants)\n"
                 "Features:\n"
                 "- Query rewriting: Generate semantically equivalent expressions\n"
-                "- Synonym replacement: Replace words with synonyms\n"
-                "- Query expansion: Add related terms to queries\n\n"
+                "- Synonym replacement: Replace words with synonyms\n\n"
                 "Input:\n"
                 "- input_query_key: Query field name (default: 'query')\n"
                 "- output_query_key: Augmented query field name (default: 'query')"
             )
 
-    def _clean_json_block(self, text: str) -> str:
-        """Clean JSON code block markers from LLM output."""
-        return text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-
-    def _generate_from_llm(self, user_prompts, system_prompt=""):
-        """Helper to call LLM serving"""
-        if self.llm is None:
-            raise ValueError("LLM is not configured")
-        llm_serve = self.llm.share(prompt=system_prompt)
-        llm_serve.start()
-        # prompter = lazyllm.ChatPrompter(system_prompt)
-        # llm_serve = self.llm.prompt(prompter)
-        # llm_serve.start()
-        # LLM expects single string, need to iterate for batch
-        results = []
-        for prompt in user_prompts:
-            results.append(llm_serve(prompt))
-        return results
-
-    def _augment_query_rewrite(self, queries: List[str]) -> List[List[str]]:
-        """Augment queries by rewriting with LLM.
-        参考 CondorGenerator 的 LLM 生成方法。
-        """
-        prompt_template = EmbeddingQueryAugmentPrompt(lang=self.lang)
-        system_prompt = prompt_template.build_system_prompt()
-
-        user_prompts = [
-            prompt_template.build_prompt(query=q, num_rewrites=self.num_augments)
-            for q in queries
-        ]
-
-        responses = self._generate_from_llm(user_prompts, system_prompt)
-
-        augmented_queries = []
-        for response in responses:
-            try:
-                parsed = json.loads(self._clean_json_block(response))
-                rewrites = parsed if isinstance(parsed, list) else parsed.get("rewrites", [])
-                augmented_queries.append([str(r).strip() for r in rewrites if str(r).strip()])
-            except Exception as e:
-                LOG.warning(f"Failed to parse rewrite response: {e}")
-                augmented_queries.append([])
-
-        return augmented_queries
-
-    def _augment_synonym_replace(self, queries: List[str]) -> List[List[str]]:
-        """Augment queries by random synonym replacement (simple rule-based)."""
-        # Simple character-level augmentation for Chinese, word-level for English
-        augmented = []
-        for query in queries:
-            variants = []
-            for _ in range(self.num_augments):
-                # Simple shuffle-based augmentation (placeholder for more sophisticated methods)
-                words = query.split()
-                if len(words) > 2:
-                    # Randomly swap two adjacent words
-                    idx = random.randint(0, len(words) - 2)
-                    words[idx], words[idx + 1] = words[idx + 1], words[idx]
-                    variants.append(" ".join(words))
-                else:
-                    variants.append(query)  # Keep original if too short
-            augmented.append(variants)
-        return augmented
-
     def forward_batch_input(
-            self,
-            inputs: List[dict],
-            input_query_key: str = "query",
-            output_query_key: str = "query",
-            keep_original: bool = True,
-            **kwargs
+        self,
+        inputs: List[dict],
+        input_query_key: str = "query",
+        output_query_key: str = "query",
+        keep_original: bool = True,
+        **kwargs
     ) -> List[dict]:
         """
-        Augment the training data.
-
-        Args:
-            inputs: List of dict
-            input_query_key: Key for input query field
-            output_query_key: Key for output query field
-            keep_original: Whether to keep original samples in output
-
-        Returns:
-            List of dict with original and augmented samples
+        Augment the training data using pipeline operators.
         """
+        from lazyllm import pipeline
+
         assert isinstance(inputs, list), "inputs must be a list of dict"
 
         LOG.info(f"Augmenting {len(inputs)} samples with methods: {self.augment_methods}")
 
-        queries = [item.get(input_query_key, "") for item in inputs]
-        all_augmented = [[] for _ in queries]
+        # Normalize input data
+        normalized_inputs = []
+        for item in inputs:
+            normalized_item = item.copy()
+            if input_query_key != 'query':
+                normalized_item['query'] = item.get(input_query_key, '')
+            normalized_inputs.append(normalized_item)
 
-        # Apply each augmentation method
-        for method in self.augment_methods:
-            if method == "query_rewrite":
-                method_results = self._augment_query_rewrite(queries)
-            elif method == "synonym_replace":
-                method_results = self._augment_synonym_replace(queries)
-            else:
-                LOG.warning(f"Unknown augmentation method: {method}, skipping...")
-                continue
-
-            # Merge results
-            for i, augments in enumerate(method_results):
-                all_augmented[i].extend(augments)
-
-        # Build output
         results = []
-        for idx, item in enumerate(inputs):
-            # Keep original if requested
-            if keep_original:
-                results.append(item.copy())
+        if keep_original:
+            results.extend(inputs)
 
-            # Add augmented samples
-            for aug_query in all_augmented[idx]:
-                if aug_query and aug_query != item.get(input_query_key):
-                    new_row = item.copy()
-                    new_row[output_query_key] = aug_query
-                    new_row["is_augmented"] = True
-                    results.append(new_row)
+        # Apply each augmentation method using pipeline
+        for method in self.augment_methods:
+            LOG.info(f"Applying augmentation method: {method}")
+            
+            with pipeline() as ppl:
+                if method == "query_rewrite":
+                    ppl.augment = EmbeddingQueryRewrite(
+                        llm=self.llm,
+                        num_augments=self.num_augments,
+                        lang=self.lang
+                    )
+                elif method == "synonym_replace":
+                    ppl.augment = EmbeddingSynonymReplace(
+                        num_augments=self.num_augments
+                    )
+                else:
+                    LOG.warning(f"Unknown augmentation method: {method}, skipping...")
+                    continue
+
+            augmented = ppl(normalized_inputs)
+            
+            # Restore original key name if needed
+            if output_query_key != 'query':
+                for item in augmented:
+                    item[output_query_key] = item.pop('query', '')
+            
+            results.extend(augmented)
 
         original_count = len(inputs) if keep_original else 0
         augmented_count = len(results) - original_count

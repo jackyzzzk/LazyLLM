@@ -1,23 +1,123 @@
-"""KBC Text Cleaner operator"""
+"""KBC Text Cleaner operators"""
 from typing import List
 from lazyllm import LOG
 from lazyllm.common.registry import LazyLLMRegisterMetaClass
+from lazyllm.components.formatter import JsonFormatter
 from ...base_data import data_register
 from ...prompts.kbcleaning import KnowledgeCleanerPrompt
 
-# 复用已存在的 kbc 组
+# Get or create kbc (knowledge base cleaning) group
 if 'data' in LazyLLMRegisterMetaClass.all_clses and 'kbc' in LazyLLMRegisterMetaClass.all_clses['data']:
     kbc = LazyLLMRegisterMetaClass.all_clses['data']['kbc'].base
 else:
     kbc = data_register.new_group('kbc')
 
 
-class KBCTextCleaner(kbc):
-    """
-    Knowledge cleaner for RAG to make content more accurate, reliable and readable.
-    知识清洗算子：对原始知识内容进行标准化处理。
-    """
+class KBCBuildCleanPromptSingle(kbc):
+   
+    def __init__(self, lang: str = "en", **kwargs):
+        super().__init__(_concurrency_mode='process', **kwargs)
+        self.prompts = KnowledgeCleanerPrompt(lang=lang)
 
+    def forward(
+        self,
+        data: dict,
+        input_key: str = "raw_chunk",
+        **kwargs
+    ) -> dict:
+        raw_content = data.get(input_key, "")
+        if not raw_content:
+            return {**data, '_clean_prompt': ''}
+
+        user_prompt = self.prompts.build_prompt(raw_content)
+        return {**data, '_clean_prompt': user_prompt, '_raw_content': raw_content}
+
+
+class KBCGenerateCleanedTextSingle(kbc):
+    def __init__(self, llm=None, lang: str = "en", **kwargs):
+        super().__init__(_concurrency_mode='thread', **kwargs)
+        
+        # Initialize prompt template
+        self.prompts = KnowledgeCleanerPrompt(lang=lang)
+        
+        # Initialize LLM serve with system prompt and formatter
+        if llm is not None:
+            # Note: KnowledgeCleanerPrompt may not have system prompt, use empty string
+            system_prompt = getattr(self.prompts, 'build_system_prompt', lambda: "")()
+            self._llm_serve = llm.share().prompt(system_prompt).formatter(JsonFormatter())
+            self._llm_serve.start()
+        else:
+            self._llm_serve = None
+
+    def forward(
+        self,
+        data: dict,
+        **kwargs
+    ) -> dict:
+        if self._llm_serve is None:
+            raise ValueError("LLM is not configured")
+
+        user_prompt = data.get('_clean_prompt', '')
+        raw_content = data.get('_raw_content', '')
+
+        if not user_prompt:
+            return {**data, '_cleaned_response': raw_content}
+
+        try:
+            # Call LLM (system prompt and formatter already set in __init__)
+            response = self._llm_serve(user_prompt)
+            return {**data, '_cleaned_response': response}
+        except Exception as e:
+            LOG.warning(f"Failed to clean text: {e}")
+            # Use raw content as fallback
+            return {**data, '_cleaned_response': raw_content}
+
+
+class KBCExtractCleanedContentSingle(kbc):
+    def __init__(self, output_key: str = "cleaned_chunk", **kwargs):
+        super().__init__(_concurrency_mode='process', **kwargs)
+        self.output_key = output_key
+
+    def forward(
+        self,
+        data: dict,
+        **kwargs
+    ) -> dict:
+        response = data.get('_cleaned_response', '')
+        
+        # Handle different response types from JsonFormatter
+        if isinstance(response, dict):
+            # JsonFormatter returned a dict, extract text field or convert to string
+            text = response.get('text', '') or response.get('content', '') or str(response)
+        elif isinstance(response, list):
+            # JsonFormatter returned a list, join or take first item
+            text = response[0] if response else ''
+            if isinstance(text, dict):
+                text = text.get('text', '') or text.get('content', '') or str(text)
+        elif isinstance(response, str):
+            # JsonFormatter failed to parse, use as-is
+            text = response
+        else:
+            text = str(response)
+
+        # Extract content between tags
+        if '<cleaned_start>' in text and '<cleaned_end>' in text:
+            try:
+                cleaned_text = text.split('<cleaned_start>')[1].split('<cleaned_end>')[0].strip()
+            except IndexError:
+                cleaned_text = text.strip()
+        else:
+            cleaned_text = text.strip()
+
+        result = data.copy()
+        result[self.output_key] = cleaned_text
+        # Clean intermediate fields
+        for key in ['_clean_prompt', '_raw_content', '_cleaned_response']:
+            result.pop(key, None)
+        return result
+
+
+class KBCTextCleaner(kbc):
     def __init__(
             self,
             llm=None,
@@ -25,7 +125,7 @@ class KBCTextCleaner(kbc):
             prompt_template=None,
             **kwargs
     ):
-        super().__init__(**kwargs)
+        super().__init__(rewrite_func='forward_batch_input', **kwargs)
         self.llm = llm
         self.lang = lang
         if prompt_template:
@@ -33,60 +133,39 @@ class KBCTextCleaner(kbc):
         else:
             self.prompt_template = KnowledgeCleanerPrompt(lang=lang)
 
-    @staticmethod
-    def get_desc(lang: str = "zh"):
-        if lang == "zh":
-            return (
-                "知识清洗算子：对原始知识内容进行标准化处理，包括HTML标签清理、特殊字符规范化、"
-                "链接处理和结构优化，提升RAG知识库的质量。"
-            )
-        elif lang == "en":
-            return (
-                "Knowledge Cleaning Operator: Standardizes raw HTML/text content for RAG quality improvement."
-            )
-        else:
-            return "Knowledge cleaning operator for RAG content standardization."
-
-    def _generate_from_llm(self, user_prompts, system_prompt=""):
-        """Helper to call LLM serving"""
-        if self.llm is None:
-            raise ValueError("LLM is not configured")
-        llm_serve = self.llm.share(prompt=system_prompt)
-        llm_serve.start()
-        results = []
-        for prompt in user_prompts:
-            results.append(llm_serve(prompt))
-        return results
-
-    def forward(
+    def forward_batch_input(
             self,
-            data: dict,
+            data: List[dict],
             input_key: str = "raw_chunk",
             output_key: str = "cleaned_chunk",
-    ) -> dict:
-        """
-        Clean raw text content for a single item.
+    ) -> List[dict]:
+        from lazyllm import pipeline
 
-        Args:
-            data: Single dict item
-            input_key: Key for input raw content
-            output_key: Key for output cleaned content
+        assert isinstance(data, list), "Input data must be a list of dict"
 
-        Returns:
-            Dict with cleaned content added
-        """
-        assert isinstance(data, dict), "Input data must be a dict"
+        LOG.info(f"Starting text cleaning for {len(data)} items...")
 
-        raw_content = data.get(input_key, "")
-        formatted_prompt = self.prompt_template.build_prompt(raw_content)
-        cleaned = self._generate_from_llm([formatted_prompt], "")[0]
+        # Build parallel processing pipeline
+        with pipeline() as ppl:
+            # Stage 1: Build prompts (CPU-bound)
+            ppl.build_prompt = KBCBuildCleanPromptSingle(
+                lang=self.lang,
+                input_key=input_key
+            )
+            
+            # Stage 2: Generate cleaned text using LLM (I/O-bound)
+            ppl.generate = KBCGenerateCleanedTextSingle(
+                llm=self.llm,
+                lang=self.lang
+            )
+            
+            # Stage 3: Extract cleaned content (CPU-bound)
+            ppl.extract = KBCExtractCleanedContentSingle(
+                output_key=output_key
+            )
 
-        # Extract content between <cleaned_start> and <cleaned_end>
-        if '<cleaned_start>' in str(cleaned) and '<cleaned_end>' in str(cleaned):
-            cleaned_text = str(cleaned).split('<cleaned_start>')[1].split('<cleaned_end>')[0].strip()
-        else:
-            cleaned_text = str(cleaned).strip()
+        # Execute pipeline
+        results = ppl(data)
 
-        result = data.copy()
-        result[output_key] = cleaned_text
-        return result
+        LOG.info(f"Text cleaning completed for {len(results)} items.")
+        return results

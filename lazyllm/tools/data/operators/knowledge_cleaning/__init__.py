@@ -1,30 +1,41 @@
-# Knowledge cleaning operators for data pipeline
-from lazyllm.common.registry import LazyLLMRegisterMetaClass
-from ...base_data import data_register
+# if 'data' in LazyLLMRegisterMetaClass.all_clses and 'kbc' in LazyLLMRegisterMetaClass.all_clses['data']:
+#     kbc = LazyLLMRegisterMetaClass.all_clses['data']['kbc'].base
+# else:
+#     kbc = data_register.new_group('kbc')
 
-# 获取或创建 kbc (knowledge base cleaning) 组（确保所有模块共享同一个组）
-if 'data' in LazyLLMRegisterMetaClass.all_clses and 'kbc' in LazyLLMRegisterMetaClass.all_clses['data']:
-    kbc = LazyLLMRegisterMetaClass.all_clses['data']['kbc'].base
-else:
-    kbc = data_register.new_group('kbc')
-
-from .kbc_chunk_generator import KBCChunkGenerator
-from .kbc_chunk_generator_batch import KBCChunkGeneratorBatch
-from .kbc_text_cleaner import KBCTextCleaner
-from .kbc_text_cleaner_batch import KBCTextCleanerBatch
-from .file_or_url_to_markdown_converter_batch import FileOrURLToMarkdownConverterBatch
-from .file_or_url_to_markdown_converter_api import FileOrURLToMarkdownConverterAPI
-from .kbc_multihop_qa_generator_batch import KBCMultiHopQAGeneratorBatch
-from .qa_extract import QAExtractor
+from .kbc_chunk_generator import KBCLoadTextSingle, KBCChunkTextSingle, KBCExpandChunks
+from .kbc_chunk_generator_batch import KBCLoadText, KBCChunkText, KBCSaveChunks
+from .kbc_text_cleaner_batch import KBCLoadChunkFile, KBCBuildCleanPrompt, KBCGenerateCleanedText, KBCExtractCleanedContent, KBCSaveCleanedChunks
+from .file_or_url_to_markdown_converter_api import FileOrURLNormalizer, HTMLToMarkdownConverter, PDFToMarkdownConverterAPI, TextPassThrough, MarkdownPathCleaner
+from .kbc_multihop_qa_generator_batch import KBCLoadChunkFile, KBCPreprocessText, KBCExtractInfoPairs, KBCBuildMultiHopPrompt, KBCGenerateMultiHopQA, KBCParseQAPairs, KBCSaveEnhancedChunks
+from .qa_extract import KBCLoadQAData, KBCParseFields, KBCExtractQAPairs, KBCSaveQAResults
 
 __all__ = [
-    'kbc',
-    'KBCChunkGenerator',
-    'KBCChunkGeneratorBatch',
-    'KBCTextCleaner',
-    'KBCTextCleanerBatch',
-    'FileOrURLToMarkdownConverterBatch',
-    'FileOrURLToMarkdownConverterAPI',
-    'KBCMultiHopQAGeneratorBatch',
-    'QAExtractor',
+    KBCLoadTextSingle,
+    KBCChunkTextSingle,
+    KBCExpandChunks,
+    KBCLoadText,
+    KBCChunkText,
+    KBCSaveChunks,
+    KBCLoadChunkFile,
+    KBCBuildCleanPrompt,
+    KBCGenerateCleanedText,
+    KBCExtractCleanedContent,
+    KBCSaveCleanedChunks,
+    FileOrURLNormalizer,
+    HTMLToMarkdownConverter,
+    PDFToMarkdownConverterAPI,
+    TextPassThrough,
+    MarkdownPathCleaner,
+    KBCLoadChunkFile,
+    KBCPreprocessText,
+    KBCExtractInfoPairs,
+    KBCBuildMultiHopPrompt,
+    KBCGenerateMultiHopQA,
+    KBCParseQAPairs,
+    KBCSaveEnhancedChunks,
+    KBCLoadQAData,
+    KBCParseFields,
+    KBCExtractQAPairs,
+    KBCSaveQAResults,
 ]

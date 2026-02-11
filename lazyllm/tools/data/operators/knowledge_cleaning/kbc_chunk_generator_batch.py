@@ -1,4 +1,4 @@
-"""KBC Chunk Generator Batch operator"""
+"""KBC Chunk Generator Batch operators"""
 import os
 import json
 from typing import List
@@ -6,60 +6,101 @@ from lazyllm import LOG
 from lazyllm.common.registry import LazyLLMRegisterMetaClass
 from ...base_data import data_register
 
-# 复用已存在的 kbc 组
+# Get or create kbc (knowledge base cleaning) group
 if 'data' in LazyLLMRegisterMetaClass.all_clses and 'kbc' in LazyLLMRegisterMetaClass.all_clses['data']:
     kbc = LazyLLMRegisterMetaClass.all_clses['data']['kbc'].base
 else:
     kbc = data_register.new_group('kbc')
 
 
-class KBCChunkGeneratorBatch(kbc):
-    """
-    Batch text splitting tool supporting token/sentence/semantic/recursive chunking.
-    批量文本分割工具，支持词/句/语义/递归分块。
-    """
+class KBCLoadText(kbc):
 
+    def __init__(self, **kwargs):
+        super().__init__(_concurrency_mode='thread', **kwargs)
+
+    def forward(
+        self,
+        data: dict,
+        input_key: str = "text_path",
+        **kwargs
+    ) -> dict:
+        text_path = data.get(input_key, "")
+        if not text_path:
+            return {**data, '_text_content': '', '_load_error': 'Empty text path'}
+
+        if not os.path.exists(text_path):
+            LOG.error(f"Input file not found: {text_path}")
+            return {**data, '_text_content': '', '_load_error': f'File not found: {text_path}'}
+
+        try:
+            if text_path.endswith('.txt') or text_path.endswith('.md') or text_path.endswith('.xml'):
+                with open(text_path, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                return {**data, '_text_content': text}
+
+            elif text_path.endswith(('.json', '.jsonl')):
+                with open(text_path, 'r', encoding='utf-8') as f:
+                    if text_path.endswith('.json'):
+                        file_data = json.load(f)
+                    else:
+                        file_data = [json.loads(line) for line in f]
+
+                text_fields = ['text', 'content', 'body']
+                for field in text_fields:
+                    if isinstance(file_data, list) and len(file_data) > 0 and field in file_data[0]:
+                        text = "\n".join([item[field] for item in file_data])
+                        return {**data, '_text_content': text}
+                    elif isinstance(file_data, dict) and field in file_data:
+                        text = file_data[field]
+                        return {**data, '_text_content': text}
+
+                LOG.error(f"No text field found in {text_path}")
+                return {**data, '_text_content': '', '_load_error': 'No text field found'}
+
+            else:
+                LOG.error(f"Unsupported file format for {text_path}")
+                return {**data, '_text_content': '', '_load_error': f'Unsupported format'}
+
+        except Exception as e:
+            LOG.error(f"Error loading {text_path}: {e}")
+            return {**data, '_text_content': '', '_load_error': str(e)}
+
+
+class KBCChunkText(kbc):
     def __init__(
-            self,
-            chunk_size: int = 512,
-            chunk_overlap: int = 50,
-            split_method: str = "token",
-            min_tokens_per_chunk: int = 100,
-            tokenizer_name: str = "bert-base-uncased",
-            **kwargs
+        self,
+        chunk_size: int = 512,
+        chunk_overlap: int = 50,
+        split_method: str = "token",
+        tokenizer_name: str = "bert-base-uncased",
+        **kwargs
     ):
-        super().__init__(**kwargs)
+        super().__init__(_concurrency_mode='process', **kwargs)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.split_method = split_method
-        self.min_tokens_per_chunk = min_tokens_per_chunk
         self.tokenizer_name = tokenizer_name
-        self._init_chunker()
-
-    def _init_chunker(self):
-        """Initialize tokenizer and chunker lazily"""
-        self.tokenizer = None
-        self.chunker = None
+        self._chunker = None
+        self._tokenizer = None
 
     def _ensure_initialized(self):
-        """Ensure tokenizer and chunker are initialized"""
-        if self.tokenizer is None:
+        if self._tokenizer is None:
             try:
+                # from lazyllm.thirdparty.transformers import AutoTokenizer
                 from transformers import AutoTokenizer
-                from chonkie import TokenChunker, SentenceChunker, SemanticChunker, RecursiveChunker
-                self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
-                self.chunker = self._initialize_chunker()
+                self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
+                self._chunker = self._initialize_chunker()
             except ImportError as e:
                 LOG.error(f"Missing dependencies: {e}")
                 raise
 
     def _initialize_chunker(self):
-        """Initialize the appropriate chunker based on method"""
+        # from lazyllm.thirdparty.chonkie import TokenChunker, SentenceChunker, SemanticChunker, RecursiveChunker
         from chonkie import TokenChunker, SentenceChunker, SemanticChunker, RecursiveChunker
 
         if self.split_method == "token":
             return TokenChunker(
-                tokenizer=self.tokenizer,
+                tokenizer=self._tokenizer,
                 chunk_size=self.chunk_size,
                 chunk_overlap=self.chunk_overlap
             )
@@ -80,86 +121,26 @@ class KBCChunkGeneratorBatch(kbc):
         else:
             raise ValueError(f"Unsupported split method: {self.split_method}")
 
-    @staticmethod
-    def get_desc(lang: str = "zh"):
-        if lang == "zh":
-            return (
-                "批量文本分割工具，"
-                "支持词/句/语义/递归分块，"
-                "可配置块大小、重叠和最小块长度"
-            )
-        elif lang == "en":
-            return (
-                "Batch text segmentation tool "
-                "supporting multiple chunking methods "
-                "with configurable size and overlap."
-            )
-        else:
-            return "Batch text splitting tool."
-
-    def _load_text(self, text_paths: List[str]) -> List[str]:
-        """Load text from file list"""
-        texts = []
-        for text_path in text_paths:
-            if not os.path.exists(text_path):
-                LOG.error(f"Input file not found: {text_path}")
-                texts.append("")
-            elif text_path.endswith('.txt') or text_path.endswith('.md') or text_path.endswith('.xml'):
-                with open(text_path, 'r', encoding='utf-8') as f:
-                    texts.append(f.read())
-            elif text_path.endswith(('.json', '.jsonl')):
-                with open(text_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f) if text_path.endswith('.json') else [json.loads(line) for line in f]
-                text_fields = ['text', 'content', 'body']
-                found = False
-                for field in text_fields:
-                    if isinstance(data, list) and len(data) > 0 and field in data[0]:
-                        texts.append("\n".join([item[field] for item in data]))
-                        found = True
-                        break
-                    elif isinstance(data, dict) and field in data:
-                        texts.append(data[field])
-                        found = True
-                        break
-                if not found:
-                    texts.append("")
-            else:
-                LOG.error(f"Unsupported file format for {text_path}")
-                texts.append("")
-        return texts
-
     def forward(
-            self,
-            data: dict,
-            input_key: str = "text_path",
-            output_key: str = "chunk_path",
+        self,
+        data: dict,
+        **kwargs
     ) -> dict:
-        """
-        Perform text splitting and save results to file for a single item.
+        text = data.get('_text_content', '')
+        if not text:
+            return {**data, '_chunks': []}
 
-        Args:
-            data: Single dict item
-            input_key: Key for input text file path
-            output_key: Key for output chunk file path
-
-        Returns:
-            Dict with chunk path added
-        """
-        assert isinstance(data, dict), "Input data must be a dict"
         self._ensure_initialized()
 
-        text_path = data.get(input_key, "")
-        texts = self._load_text([text_path])
-        text = texts[0] if texts else ""
-
-        if text:
-            tokens = self.tokenizer.encode(text)
+        try:
+            tokens = self._tokenizer.encode(text)
             total_tokens = len(tokens)
-            max_tokens = self.tokenizer.model_max_length
+            max_tokens = self._tokenizer.model_max_length
 
             if total_tokens <= max_tokens:
-                chunks = self.chunker(text)
+                chunks = self._chunker(text)
             else:
+                # Handle long text by splitting into smaller parts first
                 x = (total_tokens + max_tokens - 1) // max_tokens
                 words = text.split()
                 words_per_chunk = (len(words) + x - 1) // x
@@ -167,23 +148,118 @@ class KBCChunkGeneratorBatch(kbc):
                 chunks = []
                 for j in range(0, len(words), words_per_chunk):
                     chunk_text = ' '.join(words[j:j + words_per_chunk])
-                    chunks.extend(self.chunker(chunk_text))
+                    chunks.extend(self._chunker(chunk_text))
 
-            json_chunks = [{
-                "raw_chunk": chunk.text,
-            } for chunk in chunks]
+            chunk_texts = [chunk.text for chunk in chunks]
+            LOG.info(f"Split text into {len(chunks)} chunks.")
+            return {**data, '_chunks': chunk_texts}
 
-            output_dir = "/".join([os.path.dirname(text_path), "extract"])
+        except Exception as e:
+            LOG.error(f"Error chunking text: {e}")
+            return {**data, '_chunks': [], '_chunk_error': str(e)}
+
+
+class KBCSaveChunks(kbc):
+    def __init__(self, **kwargs):
+        super().__init__(_concurrency_mode='thread', **kwargs)
+
+    def forward(
+        self,
+        data: dict,
+        input_key: str = "text_path",
+        output_key: str = "chunk_path",
+        **kwargs
+    ) -> dict:
+        chunks = data.get('_chunks', [])
+        text_path = data.get(input_key, "")
+
+        if not chunks:
+            LOG.warning(f"No chunks to save for {text_path}")
+            result = data.copy()
+            result[output_key] = ""
+            # Clean intermediate fields
+            for key in ['_text_content', '_load_error', '_chunks', '_chunk_error']:
+                result.pop(key, None)
+            return result
+
+        try:
+            # Prepare output path
+            output_dir = os.path.join(os.path.dirname(text_path), "extract")
             os.makedirs(output_dir, exist_ok=True)
             file_name = os.path.splitext(os.path.basename(text_path))[0] + '_chunk.json'
             output_path = os.path.join(output_dir, file_name)
 
+            # Format chunks as JSON
+            json_chunks = [{"raw_chunk": chunk} for chunk in chunks]
+
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(json_chunks, f, ensure_ascii=False, indent=4)
-            LOG.info(f"Successfully split {text_path} into {len(chunks)} chunks.")
-        else:
-            output_path = ""
 
-        result = data.copy()
-        result[output_key] = output_path
-        return result
+            LOG.info(f"Saved {len(chunks)} chunks to {output_path}")
+
+            result = data.copy()
+            result[output_key] = output_path
+            # Clean intermediate fields
+            for key in ['_text_content', '_load_error', '_chunks', '_chunk_error']:
+                result.pop(key, None)
+            return result
+
+        except Exception as e:
+            LOG.error(f"Error saving chunks: {e}")
+            result = data.copy()
+            result[output_key] = ""
+            # Clean intermediate fields
+            for key in ['_text_content', '_load_error', '_chunks', '_chunk_error']:
+                result.pop(key, None)
+            return result
+
+
+class KBCChunkGeneratorBatch(kbc):
+    def __init__(
+        self,
+        chunk_size: int = 512,
+        chunk_overlap: int = 50,
+        split_method: str = "token",
+        tokenizer_name: str = "bert-base-uncased",
+        **kwargs
+    ):
+        super().__init__(rewrite_func='forward_batch_input', **kwargs)
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.split_method = split_method
+        self.tokenizer_name = tokenizer_name
+
+   
+    def forward_batch_input(
+        self,
+        data: List[dict],
+        input_key: str = "text_path",
+        output_key: str = "chunk_path",
+    ) -> List[dict]:
+        from lazyllm import pipeline
+
+        assert isinstance(data, list), "Input data must be a list of dict"
+
+        LOG.info(f"Starting chunk generation for {len(data)} items with parallel pipeline...")
+
+        # Build parallel processing pipeline
+        with pipeline() as ppl:
+            # Stage 1: Load text from files (I/O-bound)
+            ppl.load = KBCLoadText(input_key=input_key)
+            
+            # Stage 2: Split text into chunks (CPU-bound)
+            ppl.chunk = KBCChunkText(
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+                split_method=self.split_method,
+                tokenizer_name=self.tokenizer_name
+            )
+            
+            # Stage 3: Save chunks to files (I/O-bound)
+            ppl.save = KBCSaveChunks(input_key=input_key, output_key=output_key)
+
+        # Execute pipeline
+        results = ppl(data)
+
+        LOG.info(f"Chunk generation completed for {len(results)} items.")
+        return results

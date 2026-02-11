@@ -1,79 +1,71 @@
-"""
-Embedding Hard Negative Miner Operator
-
-This operator mines hard negative samples for embedding model training.
-该算子挖掘困难负样本，用于提升 Embedding 模型的训练效果。
-
-原始算法参考：
-1. lazyllm/tools/rag/component/bm25.py (BM25 实现)
-2. lazyllm/tools/rag/similarity.py (相似度计算，包含 cosine 函数)
-3. lazyllm/thirdparty (bm25s, jieba, numpy 等)
-
-核心思想：通过不同策略（随机、BM25词汇相似度、语义向量相似度）挖掘困难负样本，
-         提升 Embedding 模型对相似但不相关文本的区分能力。
-"""
 import random
-from typing import List, Optional
+from typing import List, Optional, Callable
 from lazyllm import LOG
 from lazyllm.common.registry import LazyLLMRegisterMetaClass
 from lazyllm.thirdparty import numpy as np, bm25s, jieba, Stemmer
 from lazyllm.tools.rag.component.stopwords import STOPWORDS_CHINESE
 from ...base_data import data_register
 
-# 复用已存在的 embedding 组
+# Get or create embedding group
 if 'data' in LazyLLMRegisterMetaClass.all_clses and 'embedding' in LazyLLMRegisterMetaClass.all_clses['data']:
     embedding = LazyLLMRegisterMetaClass.all_clses['data']['embedding'].base
 else:
     embedding = data_register.new_group('embedding')
 
 
-class EmbeddingHardNegativeMiner(embedding):
-    """
-    Mine hard negative samples for embedding training.
-    为 Embedding 训练挖掘困难负样本。
+def _normalize_pos_samples(pos_samples) -> set:
 
-    Hard negatives are passages that are semantically similar to the query
-    but are not the correct answer. They help the model learn finer distinctions.
+    if isinstance(pos_samples, list):
+        return set(pos_samples)
+    return {pos_samples}
 
-    原始算法：使用 LazyLLM 内置模块
-    - random: 简单随机采样（基线方法）
-    - bm25: 基于 bm25s 的词汇相似度挖掘（参考 lazyllm/tools/rag/component/bm25.py）
-    - semantic: 基于向量的余弦相似度挖掘（参考 lazyllm/tools/rag/similarity.py）
+class EmbeddingBuildCorpus(embedding):
+    def __init__(self, **kwargs):
+        super().__init__(rewrite_func='forward_batch_input', **kwargs)
+    def forward_batch_input(
+        self,
+        inputs: List[dict],
+        input_pos_key: str = "pos",
+        corpus_key: str = "passage",
+        **kwargs
+    ) -> List[dict]:
+        all_passages = []
+        for item in inputs:
+            pos_list = item.get(input_pos_key, [])
+            if isinstance(pos_list, list):
+                all_passages.extend(pos_list)
+            else:
+                all_passages.append(pos_list)
+            if corpus_key in item:
+                all_passages.append(item[corpus_key])
+        
+        corpus = list(set(all_passages))
+        LOG.info(f"Built corpus with {len(corpus)} unique passages.")
+        return [{**item, '_corpus': corpus} for item in inputs]
 
-    Mining strategies:
-    - random: Random sampling from corpus (baseline)
-    - bm25: BM25-based lexical similarity (using lazyllm.thirdparty.bm25s)
-    - semantic: Embedding-based semantic similarity (using lazyllm.thirdparty.numpy)
+class EmbeddingBuildCorpusFromList(embedding):
+    def __init__(self, **kwargs):
+        super().__init__(rewrite_func='forward_batch_input', **kwargs)
 
-    Args:
-        mining_strategy: Strategy for mining negatives ("random", "bm25", "semantic")
-        num_negatives: Number of negative samples per query (default: 7)
-        embedding_serving: Embedding service for semantic mining (optional)
-        language: Language for BM25 tokenization ("en" or "zh", default: "zh")
-        seed: Random seed for reproducibility
-        _concurrency_mode: Concurrency mode ('process', 'thread', 'single')
-        _save_data: Whether to save intermediate data
-    """
+    def forward_batch_input(
+        self,
+        inputs: List[dict],
+        corpus: Optional[List[str]] = None,
+        **kwargs
+    ) -> List[dict]:
+        if corpus is None:
+            corpus = []
+        LOG.info(f"Using external corpus with {len(corpus)} passages.")
+        return [{**item, '_corpus': corpus} for item in inputs]
 
-    def __init__(
-            self,
-            mining_strategy: str = "random",
-            num_negatives: int = 7,
-            embedding_serving=None,
-            language: str = "zh",
-            seed: int = 42,
-            **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.mining_strategy = mining_strategy
-        self.num_negatives = num_negatives
-        self.embedding_serving = embedding_serving
+
+class EmbeddingInitBM25(embedding):
+    def __init__(self, language: str = "zh", **kwargs):
+        super().__init__(rewrite_func='forward_batch_input', **kwargs)
         self.language = language
-        self.seed = seed
-        self._bm25 = None
-        self._corpus = None
-        self._corpus_embeddings = None
-        # 初始化分词器和停用词（参考 lazyllm/tools/rag/component/bm25.py）
+        self._setup_tokenizer(language)
+
+    def _setup_tokenizer(self, language: str):
         if language == 'en':
             self._stemmer = Stemmer.Stemmer('english')
             self._stopwords = language
@@ -86,218 +78,292 @@ class EmbeddingHardNegativeMiner(embedding):
             self._stemmer = None
             self._stopwords = None
             self._tokenizer = lambda t: t
-        LOG.info(f"Initializing {self.__class__.__name__} with strategy: {mining_strategy}, language: {language}")
 
-    @staticmethod
-    def get_desc(lang: str = "zh"):
-        if lang == "zh":
-            return (
-                "EmbeddingHardNegativeMiner 算子用于挖掘 Embedding 训练的困难负样本。\n\n"
-                "原始算法（使用 LazyLLM 内置模块）：\n"
-                "- random: 随机采样（基线）\n"
-                "- bm25: BM25 词汇相似度（lazyllm.thirdparty.bm25s）\n"
-                "- semantic: 语义向量余弦相似度（lazyllm.thirdparty.numpy）\n\n"
-                "核心功能：\n"
-                "- 支持多种负样本挖掘策略（随机、BM25、语义相似度）\n"
-                "- 自动过滤正样本，避免将正确答案作为负样本\n"
-                "- 可配置负样本数量\n\n"
-                "输入参数：\n"
-                "- input_query_key: 查询字段名（默认：'query'）\n"
-                "- input_pos_key: 正样本字段名（默认：'pos'）\n"
-                "- corpus_key: 语料库字段名（默认：'passage'）\n"
-                "- output_neg_key: 输出负样本字段名（默认：'neg'）\n\n"
-                "输出：包含困难负样本的数据列表"
-            )
-        else:
-            return (
-                "EmbeddingHardNegativeMiner mines hard negative samples for embedding training.\n\n"
-                "Original Algorithms (using LazyLLM built-in modules):\n"
-                "- random: Random sampling (baseline)\n"
-                "- bm25: BM25 lexical similarity (lazyllm.thirdparty.bm25s)\n"
-                "- semantic: Cosine similarity (lazyllm.thirdparty.numpy)\n\n"
-                "Features:\n"
-                "- Multiple mining strategies (random, BM25, semantic similarity)\n"
-                "- Automatic filtering of positive samples\n"
-                "- Configurable number of negatives\n\n"
-                "Input:\n"
-                "- input_query_key: Query field name (default: 'query')\n"
-                "- input_pos_key: Positive sample field name (default: 'pos')\n"
-                "- corpus_key: Corpus field name (default: 'passage')\n"
-                "- output_neg_key: Output negative field name (default: 'neg')"
-            )
+    def forward_batch_input(self, inputs: List[dict], **kwargs) -> List[dict]:
+        if not inputs:
+            return inputs
 
-    def _init_bm25(self, corpus: List[str]):
-        """Initialize BM25 index for lexical similarity mining.
-        """
+        corpus = inputs[0].get('_corpus') or []
+        if not corpus:
+            LOG.warning("No corpus found for BM25 initialization.")
+            return [{**item, '_bm25': None, '_bm25_corpus': []} for item in inputs]
+
         LOG.info(f"Initializing BM25 index for {len(corpus)} documents...")
-        self._corpus = corpus
         corpus_tokens = bm25s.tokenize(
             [self._tokenizer(doc) for doc in corpus],
             stopwords=self._stopwords,
             stemmer=self._stemmer,
         )
-        self._bm25 = bm25s.BM25()
-        self._bm25.index(corpus_tokens)
-        LOG.info("BM25 index initialized successfully.")
+        bm25_index = bm25s.BM25()
+        bm25_index.index(corpus_tokens)
+        LOG.info("BM25 index initialized.")
 
-    def _compute_corpus_embeddings(self, corpus: List[str]):
-        """Compute embeddings for the entire corpus.
-        """
-        if self.embedding_serving is None:
-            raise ValueError("Embedding serving is required for semantic mining strategy")
+        return [{
+            **item,
+            '_bm25': bm25_index,
+            '_bm25_corpus': corpus,
+            '_bm25_tokenizer': self._tokenizer,
+            '_bm25_stopwords': self._stopwords,
+            '_bm25_stemmer': self._stemmer
+        } for item in inputs]
+
+
+class EmbeddingInitSemantic(embedding):
+    def __init__(self, embedding_serving: Optional[Callable] = None, **kwargs):
+        super().__init__(rewrite_func='forward_batch_input', **kwargs)
+        self.embedding_serving = embedding_serving
+
+    def forward_batch_input(self, inputs: List[dict], **kwargs) -> List[dict]:
+        if not inputs:
+            return inputs
+
+        corpus = inputs[0].get('_corpus') or []
+        if not corpus or self.embedding_serving is None:
+            LOG.warning("No corpus or embedding_serving for semantic initialization.")
+            return [{**item, '_semantic_embeddings': None, '_semantic_corpus': corpus or []}
+                    for item in inputs]
 
         LOG.info(f"Computing embeddings for {len(corpus)} documents...")
-        self._corpus = corpus
-        self._corpus_embeddings = self.embedding_serving(corpus)
-        self._corpus_embeddings = np.array(self._corpus_embeddings)
-        LOG.info("Corpus embeddings computed successfully.")
+        embeddings = np.array(self.embedding_serving(corpus))
+        LOG.info("Embeddings computed.")
 
-    def _mine_random(self, query: str, pos_set: set, corpus: List[str]) -> List[str]:
-        """Mine negatives using random sampling."""
-        random.seed(self.seed)
-        candidates = [doc for doc in corpus if doc not in pos_set]
-        if len(candidates) <= self.num_negatives:
-            return candidates
-        return random.sample(candidates, self.num_negatives)
+        return [{
+            **item,
+            '_semantic_embeddings': embeddings,
+            '_semantic_corpus': corpus
+        } for item in inputs]
 
-    def _mine_bm25(self, query: str, pos_set: set, corpus: List[str]) -> List[str]:
-        """Mine negatives using BM25 similarity.
-        
-        """
-        if self._bm25 is None or self._corpus != corpus:
-            self._init_bm25(corpus)
 
-        # Tokenize query using the same method as corpus
+class EmbeddingMineBM25Negatives(embedding):
+    def __init__(self, num_negatives: int = 7, **kwargs):
+        # BM25 retrieval is CPU-bound, use process mode
+        super().__init__(_concurrency_mode='process', **kwargs)
+        self.num_negatives = num_negatives
+
+    def forward(
+        self,
+        data: dict,
+        input_query_key: str = "query",
+        input_pos_key: str = "pos",
+        output_neg_key: str = "neg",
+        **kwargs
+    ) -> dict:
+        bm25_index = data.get('_bm25')
+        corpus = data.get('_bm25_corpus') or []
+        tokenizer = data.get('_bm25_tokenizer', lambda t: t)
+        stopwords = data.get('_bm25_stopwords')
+        stemmer = data.get('_bm25_stemmer')
+
+        if bm25_index is None:
+            LOG.warning("BM25 index not initialized.")
+            return {**data, output_neg_key: []}
+
+        query = data.get(input_query_key, '')
+        pos_samples = data.get(input_pos_key, [])
+
+        if not query:
+            return {**data, output_neg_key: []}
+
+        pos_set = _normalize_pos_samples(pos_samples)
         tokenized_query = bm25s.tokenize(
-            self._tokenizer(query),
-            stopwords=self._stopwords,
-            stemmer=self._stemmer
+            tokenizer(query), stopwords=stopwords, stemmer=stemmer
         )
 
-        # Retrieve all documents with scores
-        k = min(len(corpus), self.num_negatives + len(pos_set) + 10)  # Get more than needed
-        indices, scores = self._bm25.retrieve(tokenized_query, k=k)
+        k = min(len(corpus) if corpus else 0,
+                self.num_negatives + len(pos_set) + 10)
+        indices, scores = bm25_index.retrieve(tokenized_query, k=k)
 
-        # Filter out positives and take top-k
-        results = []
-        for idx, score in zip(indices[0], scores[0]):
+        negatives = []
+        if not corpus:
+            return {**data, output_neg_key: []}
+            
+        for idx in indices[0]:
             doc = corpus[idx]
             if doc not in pos_set:
-                results.append(doc)
-                if len(results) >= self.num_negatives:
+                negatives.append(doc)
+                if len(negatives) >= self.num_negatives:
                     break
 
-        return results
+        return {**data, output_neg_key: negatives}
 
-    def _cosine_similarity(self, query_embedding: np.ndarray, corpus_embeddings: np.ndarray) -> np.ndarray:
-        """Compute cosine similarity between query and corpus.
-        """
-        # Normalize query
-        query_norm = np.linalg.norm(query_embedding)
+
+class EmbeddingMineRandomNegatives(embedding):
+    def __init__(self, num_negatives: int = 7, seed: int = 42, **kwargs):
+        # Random sampling is CPU-bound, use process mode
+        super().__init__(_concurrency_mode='process', **kwargs)
+        self.num_negatives = num_negatives
+        self.seed = seed
+
+    def forward(
+        self,
+        data: dict,
+        input_query_key: str = "query",
+        input_pos_key: str = "pos",
+        output_neg_key: str = "neg",
+        **kwargs
+    ) -> dict:
+        corpus = data.get('_corpus') or []
+        if not corpus:
+            return {**data, output_neg_key: []}
+
+        query = data.get(input_query_key, '')
+        pos_samples = data.get(input_pos_key, [])
+
+        if not query:
+            return {**data, output_neg_key: []}
+
+        pos_set = _normalize_pos_samples(pos_samples)
+        candidates = [doc for doc in corpus if doc not in pos_set]
+
+        if len(candidates) <= self.num_negatives:
+            negatives = candidates
+        else:
+            # Use instance seed combined with query content for reproducibility
+            local_random = random.Random(f"{self.seed}_{query}")
+            negatives = local_random.sample(candidates, self.num_negatives)
+
+        return {**data, output_neg_key: negatives}
+
+
+class EmbeddingMineSemanticNegatives(embedding):
+    def __init__(self, num_negatives: int = 7,
+                 embedding_serving: Optional[Callable] = None, **kwargs):
+        # Embedding inference is I/O-bound, use thread mode
+        super().__init__(_concurrency_mode='thread', **kwargs)
+        self.num_negatives = num_negatives
+        self.embedding_serving = embedding_serving
+
+    @staticmethod
+    def _cosine_similarity(query_emb: np.ndarray, corpus_embs: np.ndarray) -> np.ndarray:
+        query_norm = np.linalg.norm(query_emb)
         if query_norm > 0:
-            query_embedding = query_embedding / query_norm
+            query_emb = query_emb / query_norm
 
-        # Normalize corpus
-        corpus_norms = np.linalg.norm(corpus_embeddings, axis=1, keepdims=True)
-        corpus_norms = np.where(corpus_norms > 0, corpus_norms, 1)  # Avoid division by zero
-        corpus_normalized = corpus_embeddings / corpus_norms
+        corpus_norms = np.linalg.norm(corpus_embs, axis=1, keepdims=True)
+        corpus_norms = np.where(corpus_norms > 0, corpus_norms, 1)
+        corpus_normalized = corpus_embs / corpus_norms
 
-        # Compute cosine similarity
-        similarities = np.dot(corpus_normalized, query_embedding)
-        return similarities
+        return np.dot(corpus_normalized, query_emb)
 
-    def _mine_semantic(self, query: str, pos_set: set, corpus: List[str]) -> List[str]:
-        """Mine negatives using semantic similarity.
-        """
-        if self._corpus_embeddings is None or self._corpus != corpus:
-            self._compute_corpus_embeddings(corpus)
+    def forward(
+        self,
+        data: dict,
+        input_query_key: str = "query",
+        input_pos_key: str = "pos",
+        output_neg_key: str = "neg",
+        **kwargs
+    ) -> dict:
+        corpus_embeddings = data.get('_semantic_embeddings')
+        corpus = data.get('_semantic_corpus') or []
 
-        # Get query embedding
-        query_embedding = self.embedding_serving([query])[0]
-        query_embedding = np.array(query_embedding)
+        if corpus_embeddings is None:
+            LOG.warning("Semantic embeddings not initialized.")
+            return {**data, output_neg_key: []}
 
-        # Compute cosine similarity
-        similarities = self._cosine_similarity(query_embedding, self._corpus_embeddings)
+        query = data.get(input_query_key, '')
+        pos_samples = data.get(input_pos_key, [])
 
-        # Sort by similarity descending, filter out positives
-        scored_docs = [(sim, doc) for sim, doc in zip(similarities, corpus) if doc not in pos_set]
+        if not query:
+            return {**data, output_neg_key: []}
+
+        pos_set = _normalize_pos_samples(pos_samples)
+
+        if self.embedding_serving is None:
+            return {**data, output_neg_key: []}
+
+        query_embedding = np.array(self.embedding_serving([query])[0])
+        similarities = self._cosine_similarity(query_embedding, corpus_embeddings)
+
+        scored_docs = [(sim, doc) for sim, doc in zip(similarities, corpus)
+                      if doc not in pos_set]
         scored_docs.sort(key=lambda x: x[0], reverse=True)
 
-        # Take top-k as hard negatives (high similarity but not positive)
-        return [doc for _, doc in scored_docs[:self.num_negatives]]
+        negatives = [doc for _, doc in scored_docs[:self.num_negatives]]
+        return {**data, output_neg_key: negatives}
 
+
+class EmbeddingHardNegativeMiner(embedding):
+    def __init__(
+        self,
+        mining_strategy: str = "random",
+        num_negatives: int = 7,
+        embedding_serving=None,
+        language: str = "zh",
+        seed: int = 42,
+        **kwargs
+    ):
+        super().__init__(rewrite_func='forward_batch_input', **kwargs)
+        self.mining_strategy = mining_strategy
+        self.num_negatives = num_negatives
+        self.embedding_serving = embedding_serving
+        self.language = language
+        self.seed = seed
+        LOG.info(f"Initializing {self.__class__.__name__} with strategy: {mining_strategy}")
     def forward_batch_input(
-            self,
-            inputs: List[dict],
-            input_query_key: str = "query",
-            input_pos_key: str = "pos",
-            corpus_key: str = "passage",
-            output_neg_key: str = "neg",
-            corpus: Optional[List[str]] = None,
-            **kwargs
+        self,
+        inputs: List[dict],
+        input_query_key: str = "query",
+        input_pos_key: str = "pos",
+        corpus_key: str = "passage",
+        output_neg_key: str = "neg",
+        corpus: Optional[List[str]] = None,
+        **kwargs
     ) -> List[dict]:
-        """
-        Mine hard negative samples for each query.
+        from lazyllm import pipeline
 
-        Args:
-            inputs: List of dict with query-pos pairs
-            input_query_key: Key for query field
-            input_pos_key: Key for positive samples field (list of passages)
-            corpus_key: Key for corpus passages (used if corpus not provided)
-            output_neg_key: Key for output negative samples field
-            corpus: Optional external corpus for mining negatives
-
-        Returns:
-            List of dict with mined hard negatives added
-        """
         assert isinstance(inputs, list), "inputs must be a list of dict"
 
-        # Build corpus from data if not provided
-        if corpus is None:
-            # Check if corpus_key exists in any item
-            if inputs and corpus_key in inputs[0]:
-                corpus = [item.get(corpus_key, "") for item in inputs]
-            else:
-                # Extract unique passages from all positive samples
-                all_passages = []
-                for item in inputs:
-                    pos_list = item.get(input_pos_key, [])
-                    if isinstance(pos_list, list):
-                        all_passages.extend(pos_list)
-                    else:
-                        all_passages.append(pos_list)
-                corpus = list(set(all_passages))
+        LOG.info(f"Mining hard negatives for {len(inputs)} queries using "
+                 f"strategy: {self.mining_strategy}")
 
-        LOG.info(f"Mining hard negatives for {len(inputs)} queries from corpus of {len(corpus)} documents...")
+        results = inputs
 
-        # Select mining function
-        if self.mining_strategy == "random":
-            mine_func = self._mine_random
-        elif self.mining_strategy == "bm25":
-            mine_func = self._mine_bm25
-        elif self.mining_strategy == "semantic":
-            mine_func = self._mine_semantic
+        # Step 1: Build corpus (full-batch operation)
+        if corpus is not None:
+            results = EmbeddingBuildCorpusFromList().forward_batch_input(
+                results, corpus=corpus
+            )
         else:
-            raise ValueError(f"Unknown mining strategy: {self.mining_strategy}")
+            results = EmbeddingBuildCorpus().forward_batch_input(
+                results, input_pos_key=input_pos_key, corpus_key=corpus_key
+            )
 
-        # Mine negatives for each query
-        results = []
-        for item in inputs:
-            query = item.get(input_query_key, "")
-            pos_samples = item.get(input_pos_key, [])
+        # Step 2: Initialize index (full-batch operation)
+        if self.mining_strategy == "bm25":
+            init_op = EmbeddingInitBM25(language=self.language)
+            results = init_op.forward_batch_input(results)
+        elif self.mining_strategy == "semantic":
+            init_op = EmbeddingInitSemantic(
+                embedding_serving=self.embedding_serving
+            )
+            results = init_op.forward_batch_input(results)
 
-            # Convert to set for fast lookup
-            if isinstance(pos_samples, list):
-                pos_set = set(pos_samples)
+        # Step 3: Mine negatives using pipeline for automatic parallelization
+        with pipeline() as ppl:
+            if self.mining_strategy == "random":
+                ppl.mine = EmbeddingMineRandomNegatives(
+                    num_negatives=self.num_negatives, seed=self.seed
+                )
+            elif self.mining_strategy == "bm25":
+                ppl.mine = EmbeddingMineBM25Negatives(
+                    num_negatives=self.num_negatives
+                )
+            elif self.mining_strategy == "semantic":
+                ppl.mine = EmbeddingMineSemanticNegatives(
+                    num_negatives=self.num_negatives,
+                    embedding_serving=self.embedding_serving
+                )
             else:
-                pos_set = {pos_samples}
+                raise ValueError(f"Unknown mining strategy: {self.mining_strategy}")
 
-            # Mine hard negatives
-            negatives = mine_func(query, pos_set, corpus)
+        results = ppl(results)
 
-            new_row = item.copy()
-            new_row[output_neg_key] = negatives
-            results.append(new_row)
+        # Clean up intermediate fields
+        for item in results:
+            for key in ['_corpus', '_bm25', '_bm25_corpus', '_bm25_tokenizer',
+                       '_bm25_stopwords', '_bm25_stemmer', '_semantic_embeddings',
+                       '_semantic_corpus']:
+                item.pop(key, None)
 
         LOG.info(f"Hard negative mining completed for {len(results)} samples.")
         return results
