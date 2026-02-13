@@ -13,6 +13,21 @@ RETRY_TIMES = 3
 
 
 class PDFReader(_RichReader):
+    """用于读取 PDF 文件并提取其中的文本内容。
+
+Args:
+    split_doc (bool): 若为 True（默认），则解析为一个 `RichDocNode`，可以搭配 `RichTransform` 解析出带有页信息的节点；
+        若为 False，则解析为一个纯文本的 `DocNode`。
+    post_func (Optional[Callable[[List[DocNode]], List[DocNode]]]): 结果后处理函数，
+        需返回 `List[DocNode]`，并会将 `extra_info` 写入每个节点的 `global_metadata`。
+    return_trace (bool): 是否返回处理过程的 trace，默认为 True。
+    return_full_document (bool, 已弃用): 此参数将在未来版本中删除，请使用 `split_doc` 替代。
+
+Notes:
+    当 `split_doc=True` 时返回 `RichDocNode`，否则返回 `DocNode`，两种情况都只返回一个节点。
+    当 `split_doc=True` 时，强烈建议搭配 `RichTransform` 使用，可以解析出带有页信息等 metadata 的节点；
+    如不使用 `RichTransform`，则解析出的节点会回退为纯文本节点。
+"""
     def __init__(self, split_doc: bool = True,
                  post_func: Optional[Callable[[List[DocNode]], List[DocNode]]] = None,
                  return_trace: bool = True, *, return_full_document=None) -> None:

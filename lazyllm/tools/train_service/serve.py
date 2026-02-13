@@ -33,9 +33,6 @@ def is_url(path):
     return bool(re.match(r'^https?://', path))
 
 def get_filename_from_url(url: str, timeout: int = 10) -> str:
-    '''
-    Get filename from URL Content-Disposition header
-    '''
     try:
         resp = requests.get(url, stream=True, timeout=timeout)
         resp.raise_for_status()
@@ -88,10 +85,6 @@ class ModelExport(BaseModel):
 
 
 def _verify_final_model_files(fine_tuned_model_path, finetuning_type='lora'):
-    '''
-    Verify that final model files are complete and valid.
-    Returns True if model files are complete, False otherwise.
-    '''
     if not fine_tuned_model_path or not os.path.exists(fine_tuned_model_path):
         return False
 
@@ -211,9 +204,6 @@ class TrainServer(ServerBase):
     _re_step_ratio = re.compile(r'(\d+)/(\d+)')
 
     def _calculate_final_cost(self, info):
-        '''
-        Calculate final cost for a job when it's completed (Failed or Done).
-        '''
         previous_cost = info.get('cost', 0) or 0
         if info.get('last_cost_update_time') and info.get('started_at'):
             # Use incremental calculation to avoid double counting
@@ -557,7 +547,6 @@ class TrainServer(ServerBase):
         return None
 
     def _extract_checkpoint_step(self, checkpoint_path):
-        '''Extract step number from checkpoint path (e.g., checkpoint-40 -> 40)'''
         if not checkpoint_path:
             return None
 
@@ -638,10 +627,6 @@ class TrainServer(ServerBase):
             return os.path.join(os.path.dirname(fine_tuned_model), 'lazyllm_lora')
 
     def _start_periodic_checkpoint_cleanup(self, token, job_id):
-        '''
-        Start a daemon thread to periodically clean up old checkpoints.
-        The thread will run every 60 seconds and clean up checkpoints while the job is active.
-        '''
         def periodic_cleanup():
             time.sleep(30)  # Initial delay before first cleanup
             while True:

@@ -155,7 +155,7 @@ Uses Python's built-in string.Formatter to parse the template and identify place
 
 Args:
     template (str): A prompt template string containing placeholders
-                    
+
 
 Returns:
     list[str]: A sorted list of placeholder variable names

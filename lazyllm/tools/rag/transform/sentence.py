@@ -2,6 +2,24 @@ from typing import List, Tuple
 from .base import _TextSplitterBase, _Split, _UNSET
 
 class SentenceSplitter(_TextSplitterBase):
+    """
+将句子拆分成指定大小的块。可以指定相邻块之间重合部分的大小。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    chunk_overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int):控制并行处理的线程/进程数量
+    **kwargs: 传递给拆分器的额外参数。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import Document, SentenceSplitter
+    >>> m = lazyllm.OnlineEmbeddingModule(source="glm")
+    >>> documents = Document(dataset_path='your_doc_path', embed=m, manager=False)
+    >>> documents.create_node_group(name="sentences", transform=SentenceSplitter, chunk_size=1024, chunk_overlap=100)
+    """
     def __init__(self, chunk_size: int = _UNSET, chunk_overlap: int = _UNSET, num_workers: int = _UNSET):
         super().__init__(chunk_size=chunk_size, overlap=chunk_overlap, num_workers=num_workers)
 

@@ -36,6 +36,18 @@ class TablesInfo(pydantic.BaseModel):
     tables: list[TableInfo]
 
 class SqlManager(DBManager):
+    """SqlManager是与数据库进行交互的专用工具。它提供了连接数据库，设置、创建、检查数据表，插入数据，执行查询的方法。
+
+Args:
+    db_type (str): 数据库类型，支持: postgresql, mysql, mssql, sqlite, mysql+pymysql
+    user (str): 数据库用户名
+    password (str): 数据库密码
+    host (str): 数据库主机地址
+    port (int): 数据库端口号
+    db_name (str): 数据库名称
+    options_str (str, optional): 连接选项字符串，默认为None
+    tables_info_dict (Dict, optional): 表结构信息字典，用于初始化表结构，默认为None
+"""
     DB_TYPE_SUPPORTED = set(['postgresql', 'mysql', 'mssql', 'sqlite', 'mysql+pymysql', 'tidb'])
     DB_DRIVER_MAP = {'mysql': 'pymysql', 'tidb': 'pymysql'}
     PYTYPE_TO_SQL_MAP = {
@@ -185,6 +197,8 @@ class SqlManager(DBManager):
 
     @contextmanager
     def get_session(self):
+        """这是一个上下文管理器，它创建并返回一个数据库连接Session，并在完成时自动提交或回滚更改并在使用完成后自动关闭会话。
+"""
         session = self.Session()
         try:
             yield session
@@ -196,6 +210,14 @@ class SqlManager(DBManager):
             session.close()
 
     def check_connection(self) -> DBResult:
+        """检查数据库连接状态。
+
+测试与数据库的连接是否正常建立。
+
+**Returns:**
+
+- DBResult: DBResult.status 连接成功(True), 连接失败(False)。DBResult.detail 包含失败信息
+"""
         try:
             with self.engine.connect() as _:
                 return DBResult()
@@ -209,6 +231,13 @@ class SqlManager(DBManager):
         return self._desc
 
     def set_desc(self, tables_desc_dict: dict = {}):  # noqa B006
+        """对于SqlManager搭配LLM使用自然语言查询的表项设置其描述，尤其当其表名、列名及取值不具有自解释能力时。
+例如：
+数据表Document的status列取值包括: "waiting", "working", "success", "failed"，tables_desc_dict参数应为 {"Document": "status列取值包括: waiting, working, success, failed"}
+
+Args:
+    tables_desc_dict (dict): 表项的补充说明
+"""
         self._desc = ''
         if not isinstance(tables_desc_dict, dict):
             raise ValueError(f'desc type {type(tables_desc_dict)} not supported')
@@ -260,10 +289,29 @@ class SqlManager(DBManager):
             raise ValueError(f'Refresh metadata failed: {e}')
 
     def get_all_tables(self) -> list:
+        """获取数据库中所有表的列表。
+
+刷新元数据后返回当前数据库中的所有表名。
+
+**Returns:**
+
+- List[str]: 数据库中所有表名的列表
+"""
         self._refresh_metadata()
         return list(self._metadata.tables.keys())
 
     def get_table_orm_class(self, table_name):
+        """根据表名获取对应的ORM类。
+
+通过表名反射获取SQLAlchemy自动映射的ORM类。
+
+Args:
+    table_name (str): 要获取的表名
+
+**Returns:**
+
+- sqlalchemy.ext.automap.Class: 对应的ORM类，如果表不存在返回None
+"""
         if table_name in self._orm_cache:
             return self._orm_cache[table_name]
         self._refresh_metadata(only=[table_name])
@@ -274,10 +322,19 @@ class SqlManager(DBManager):
         return class_obj
 
     def execute_commit(self, statement: str):
+        """执行SQL提交语句。
+
+执行DDL或DML语句并自动提交事务，适用于CREATE、ALTER、INSERT、UPDATE、DELETE等操作。
+
+Args:
+    statement (str): 要执行的SQL语句
+"""
         with self.get_session() as session:
             session.execute(sqlalchemy.text(statement))
 
     def execute_query(self, statement: str) -> str:
+        """执行sql查询脚本并以JSON字符串返回结果。
+"""
         statement = re.sub(r'/\*.*?\*/', '', statement, flags=re.DOTALL).strip()
         create_table_pattern = r'.*\s*create\s+table\s+.*'
         drop_table_pattern = r'.*\s*drop\s+table\s+.*'
@@ -316,6 +373,11 @@ class SqlManager(DBManager):
         return DBResult()
 
     def create_table(self, table: Union[str, Type[DeclarativeBase], DeclarativeMeta]) -> DBResult:
+        """创建数据表
+
+Args:
+    table (str/Type[DeclarativeBase]/DeclarativeMeta): 数据表schema。支持三种参数类型：类型为str的sql语句，继承自DeclarativeBase或继承自declarative_base()的ORM类
+"""
         status = DBStatus.SUCCESS
         detail = 'Success'
         if isinstance(table, str):
@@ -329,6 +391,11 @@ class SqlManager(DBManager):
         return DBResult(status=status, detail=detail)
 
     def drop_table(self, table: Union[str, Type[DeclarativeBase], DeclarativeMeta]) -> DBResult:
+        """删除数据表
+
+Args:
+    table (str/Type[DeclarativeBase]/DeclarativeMeta): 数据表schema。支持三种参数类型：类型为str的数据表名，继承自DeclarativeBase或继承自declarative_base()的ORM类
+"""
         metadata = self._metadata
         if isinstance(table, str):
             tablename = table
@@ -341,6 +408,12 @@ class SqlManager(DBManager):
         return DBResult()
 
     def insert_values(self, table_name: str, vals: List[dict]) -> DBResult:
+        """批量数据插入
+
+Args:
+    table_name (str): 数据表名
+    vals (List[dict]): 待插入数据，格式为[{"col_name1": v01, "col_name2": v02, ...}, {"col_name1": v11, "col_name2": v12, ...}, ...]
+"""
         TableCls = self.get_table_orm_class(table_name)
         if TableCls is None:
             return DBResult(status=DBStatus.FAIL, detail=f'{table_name} not found in database')

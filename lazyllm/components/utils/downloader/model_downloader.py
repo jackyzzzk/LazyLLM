@@ -35,6 +35,47 @@ _EQUIVALENT = {'sd': 'text2image'}
 
 
 class LLMType(str, Enum, metaclass=_CaseInsensitiveEnumMeta):
+    """LLMType 枚举类
+
+该枚举用于表示不同类型的大模型（如 LLM、VLM、TTS 等）。
+特点：
+- 成员值为字符串（继承自 str）。
+- 支持大小写不敏感的构造与比较：
+    - 构造时，既可以用成员名称，也可以用成员值，大小写不敏感。
+    - 比较时，可以直接与字符串进行比较，大小写不敏感。
+    - 成员名称索引（如 LLMType['xxx']）同样大小写不敏感。
+
+可用类型：
+    - LLM
+    - VLM
+    - SD
+    - TTS
+    - STT
+    - EMBED
+    - REANK
+    - CROSS_MODAL_EMBED
+    - OCR
+
+
+Examples:
+    >>> LLMType("llm")
+    <LLMType.LLM: 'LLM'>
+
+    >>> LLMType("llm") == LLMType.LLM
+    True
+
+    >>> LLMType("LLM") == LLMType.LLM
+    True
+
+    >>> LLMType.LLM == "llm"
+    True
+
+    >>> LLMType.LLM == "LLM"
+    True
+
+    >>> LLMType("CROSS_modal_embed")
+    <LLMType.CROSS_MODAL_EMBED: 'CROSS_MODAL_EMBED'>
+    """
     LLM = 'LLM'
     CHAT = 'CHAT'
     VLM = 'VLM'
@@ -78,6 +119,40 @@ class LLMType(str, Enum, metaclass=_CaseInsensitiveEnumMeta):
 
 
 class ModelManager():
+    """ModelManager 是 LazyLLM 提供的模型管理与下载工具类，支持本地搜索和 Huggingface/Modelscope 下载。  
+
+Args:
+    model_source (Optional[str]): 模型下载源，仅支持 ``huggingface`` 或 ``modelscope``。
+        未提供时使用 LAZYLLM_MODEL_SOURCE，若未设置则默认 ``modelscope``。
+    token (Optional[str]): 下载私有模型的访问令牌。未提供时使用 LAZYLLM_MODEL_SOURCE_TOKEN。
+    model_path (Optional[str]): 冒号分隔的本地绝对路径列表，用于下载前搜索模型。未提供时使用 LAZYLLM_MODEL_PATH。
+    cache_dir (Optional[str]): 本地缓存目录，用于存放下载的模型。未提供时使用 LAZYLLM_MODEL_CACHE_DIR，默认 ``~/.lazyllm/model``。
+
+Static Methods:
+    get_model_type(model: str) -> str
+        返回指定模型类型，如 ``llm``、``chat``，未识别返回 ``llm``。
+    get_model_prompt_keys(model: str) -> dict
+        返回模型的 prompt key 映射字典。
+    validate_model_path(model_path: str) -> bool
+        检查目录下是否存在有效模型文件（扩展名: ``.pt``, ``.bin``, ``.safetensors``）。
+
+Instance Methods:
+    download(model: Optional[str] = '', call_back: Optional[Callable] = None) -> str | bool
+        下载指定模型。流程：
+        1. 在 model_path 列出的本地目录搜索；
+        2. 未找到则在 cache_dir 下搜索；
+        3. 仍未找到则从 model_source 下载并存放 cache_dir。
+
+        Args:
+            model (Optional[str]): 目标模型名称，可使用简略名称或下载源完整名称。
+            call_back (Optional[Callable]): 下载进度回调函数，可选。
+
+
+Examples:
+    >>> from lazyllm.components import ModelManager
+    >>> downloader = ModelManager(model_source='modelscope')
+    >>> downloader.download('chatglm3-6b')
+    """
     def __init__(self, model_source, token=lazyllm.config['model_source_token'],
                  cache_dir=lazyllm.config['model_cache_dir'], model_path=lazyllm.config['model_path']):
         self.model_source = model_source or lazyllm.config['model_source']
@@ -95,6 +170,15 @@ class ModelManager():
     @staticmethod
     @functools.lru_cache
     def get_model_type(model) -> str:
+        """根据模型名称获取模型类型（如 LLM、VLM 等）。
+
+Args:
+    model (str): 模型名称或路径，必须为非空字符串。
+
+**Returns:**
+
+- str: 模型类型，如果无法匹配则返回 ``llm``。
+"""
         assert isinstance(model, str) and len(model) > 0, f'model name should be a non-empty string, get {model}'
         __class__._try_add_mapping(model)
         for name, info in model_name_mapping.items():
@@ -123,6 +207,15 @@ class ModelManager():
     @staticmethod
     @functools.lru_cache
     def get_model_prompt_keys(model) -> dict:
+        """获取指定模型的 prompt key 映射字典，用于推理时构建输入。  
+
+Args:
+    model (str): 模型名称或路径。
+
+**Returns:**
+
+- dict: 模型对应的 prompt key 映射，如果不存在则返回空字典
+"""
         model_name = __class__._get_model_name(model)
         __class__._try_add_mapping(model_name)
         if model_name and 'prompt_keys' in model_name_mapping[model_name.lower()]:
@@ -132,6 +225,15 @@ class ModelManager():
 
     @staticmethod
     def validate_model_path(model_path):
+        """检查指定路径下是否存在有效的模型文件（.pt, .bin, .safetensors）。  
+
+Args:
+    model_path (str): 模型目录路径。
+
+**Returns:**
+
+- bool: 如果目录中存在模型文件返回 True，否则返回 False
+"""
         extensions = {'.pt', '.bin', '.safetensors'}
         for _, _, files in os.walk(model_path):
             for file in files:
@@ -156,6 +258,17 @@ class ModelManager():
                 }
 
     def download(self, model='', call_back=None):
+        """下载指定名称的模型，如果本地已有则直接返回本地路径；  
+支持 Huggingface 和 Modelscope 平台的自动下载，并会在缓存目录创建符号链接以便统一管理。  
+
+Args:
+    model (str, optional): 模型名称或路径，默认为空字符串，表示不下载。
+    call_back (Optional[Callable], optional): 下载进度回调函数，接受当前下载状态等参数。  
+
+**Returns:**
+
+- str | bool: 模型在本地的完整路径，如果下载失败返回 False
+"""
         assert isinstance(model, str), 'model name should be a string.'
         if len(model) == 0 or model[0] in (os.sep, '.', '~') or os.path.isabs(model): return model
         if (model_at_path := self._model_exists_at_path(model)): return model_at_path

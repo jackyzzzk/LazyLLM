@@ -6,31 +6,12 @@ from .base.utils import select_source_with_default_key
 
 
 class _OnlineMultiModalMeta(type):
-    '''Metaclass for OnlineMultiModalModule to support isinstance checks'''
     def __instancecheck__(self, __instance: Any) -> bool:
         if isinstance(__instance, OnlineMultiModalBase):
             return True
         return super().__instancecheck__(__instance)
 
 class OnlineMultiModalModule(metaclass=_OnlineMultiModalMeta):
-    '''
-    Factory class for creating online multimodal models.
-
-    Supports various multimodal functions including:
-    - Speech-to-Text (STT)
-    - Text-to-Speech (TTS)
-    - Text-to-Image generation
-
-    Example:
-        # Create an online STT
-        stt = OnlineMultiModalModule(source='qwen', function='stt')
-
-        # Create an online TTS
-        tts = OnlineMultiModalModule(source='qwen', function='tts')
-
-        # Create an online text-to-image
-        img_gen = OnlineMultiModalModule(source='qwen', function='text2image')
-    '''
     TYPE_GROUP_MAP = {
         'stt': LLMType.STT,
         'tts': LLMType.TTS,

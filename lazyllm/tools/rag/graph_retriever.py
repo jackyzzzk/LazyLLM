@@ -7,6 +7,13 @@ from typing import Union
 
 
 class GraphRetriever(ModuleBase):
+    """基于 GraphRAG 的知识图谱查询检索器。
+
+此类提供了一个用于查询由 Document 实例构建的 GraphRAG 知识图谱的简易接口。它封装了 GraphDocument 的查询功能，提供了一个一致的检索器接口，类似于 LazyLLM 框架中的其他检索器。
+
+Args:
+    document (Document): Document 或 GraphDocument 实例。如果提供的是 Document，检索器将尝试通过弱引用获取关联的 GraphDocument；如果直接提供 GraphDocument，则按原样使用。
+"""
     def __init__(self, doc: Union[Document, GraphDocument, UrlGraphDocument], **kwargs):
         super().__init__()
         assert isinstance(

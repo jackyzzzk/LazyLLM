@@ -28,6 +28,51 @@ from ...sql import SqlManager
 
 
 class DocumentProcessor(ModuleBase):
+    """
+文档处理服务类，启动后可对外提供文档处理服务，支持文档的添加、删除和更新等操作。
+服务内部采取生产者-消费者模式，通过队列管理文档处理任务，支持异步处理文档任务，支持任务状态回调通知。
+
+Args:
+    port (Optional[int]): 服务端口号。默认为None，当为None时，将自动分配端口。
+    url (Optional[str]): 服务URL，提供服务URL时，模块可远程连接已经部署好的服务，无需再启动服务，默认为None。
+    num_workers (int): 工作线程数，默认为1，当为0时，不启动工作线程，仅启动服务。
+    db_config (Optional[Dict[str, Any]]): 用于配置SqlManager实现数据库连接，默认为None，当为None时，使用默认数据库配置。
+    launcher (Optional[Launcher]): 用于管理服务进程的Launcher实例，默认为None。
+    post_func (Optional[Callable]): 用于处理任务状态回调通知的函数，默认为None，当为None时，不进行任务状态回调通知,必须提供一个函数，函数签名如下：
+        def post_func(task_id: str, task_status: str = None, error_code: str = None, error_msg: str = None):
+            pass
+    path_prefix (Optional[str]): 用于配置上传文件存储路径前缀，默认为None。
+
+
+Examples:
+
+    ```python
+    # set db_config
+    db_config = {
+        'db_type': 'sqlite',
+        'user': None,
+        'password': None,
+        'host': None,
+        'port': None,
+        'db_name': '/xxx/xxx/test.db',
+    }
+    # Create server and start it
+    server = DocumentProcessor(port=28888, db_config=db_config, num_workers=4, post_func=post_func_sample)
+    server.start()
+
+    # start the document with server
+    server = DocumentProcessor(port=28888, db_config=db_config, num_workers=4, post_func=post_func_sample)
+    document = Document(dataset_path=None, name="algo_1", display_name="Algo_1",
+                        description="Algo_1 for testing", manager=server)
+    document.start()
+
+    # Create remote document processor
+    remote_server = DocumentProcessor(url="http://remote-server:8080")
+    document = Document(dataset_path=None, name="algo_1", display_name="Algo_1",
+                        description="Algo_1 for testing", manager=remote_server)
+    document.start()
+    ```
+    """
 
     class _Impl():
         def __init__(self, db_config: Optional[Dict[str, Any]] = None, num_workers: int = 1,
@@ -85,7 +130,6 @@ class DocumentProcessor(ModuleBase):
             self.__dict__.update(state)
 
         def process_finished_task(self):
-            '''process finished task in background thread'''
             while True:
                 try:
                     finished_task = self._finished_task_queue.dequeue()
@@ -177,13 +221,6 @@ class DocumentProcessor(ModuleBase):
 
         @app.get('/prestop')
         def get_prestop(self) -> None:
-            '''
-            PreStop lifecycle hook endpoint.
-            Called before the container is terminated to allow graceful shutdown.
-            This endpoint returns immediately after setting shutdown flag.
-            Actual cleanup is handled by the worker thread in background.
-            K8s will wait terminationGracePeriodSeconds before sending SIGTERM.
-            '''
             LOG.info('[DocumentProcessor] PreStop hook called, initiating graceful shutdown...')
             try:
                 if not self._shutdown:
@@ -432,7 +469,6 @@ class DocumentProcessor(ModuleBase):
                 raise fastapi.HTTPException(status_code=500, detail=f'Failed to cancel task: {str(e)}')
 
         def _check_post_func(self) -> bool:
-            '''assert post function is callable and params include task_id, task_status, error_code, error_msg'''
             if not self._post_func:
                 LOG.warning('[DocumentProcessor] No post function configured,'
                             ' task status callback will not be performed!')
@@ -451,7 +487,6 @@ class DocumentProcessor(ModuleBase):
             return True
 
         def _callback(self, task_id: str, task_status: str = None, error_code: str = None, error_msg: str = None):
-            '''callback to service'''
             message = f'Task {task_id} finished with status: {task_status}.'
             if error_msg:
                 message += f' Error code: {error_code}, error_msg: {error_msg}.'
@@ -483,6 +518,9 @@ class DocumentProcessor(ModuleBase):
             self._impl = UrlModule(url=ensure_call_endpoint(url))
 
     def start(self):
+        """
+启动文档处理服务，该方法会启动服务端口，并启动工作线程，后续可使用该服务处理文档。若初始化时设置了工作线程数大于0，则会启动工作线程，否则仅启动服务。
+"""
         # start the server
         result = super().start()
         # ensure the initialization
@@ -510,9 +548,27 @@ class DocumentProcessor(ModuleBase):
     def register_algorithm(self, name: str, store: _DocumentStore, reader: DirectoryReader,
                            node_groups: Dict[str, Dict], schema_extractor: Optional[SchemaExtractor] = None,
                            display_name: Optional[str] = None, description: Optional[str] = None, **kwargs):
+        """
+注册算法到文档处理服务，内部会自动将算法信息存储到数据库中，后续可使用该算法处理文档。
+该方法必须与 Document 模块配合使用，才能正常工作，一般无需自行调用。
+
+Args:
+    name (str): 算法名称，作为唯一标识符。
+    store (_DocumentStore): _DocumentStore实例，用于管理文档数据。
+    reader (DirectoryReader): 读取器实例，用于解析文档内容。
+    node_groups (Dict[str, Dict]): 节点组配置信息。
+    display_name (Optional[str]): 算法的显示名称，默认为None。
+    description (Optional[str]): 算法的描述信息，默认为None。
+"""
         assert isinstance(reader, DirectoryReader), 'Only DirectoryReader can be registered to processor'
         self._dispatch('register_algorithm', name, store, reader, node_groups, schema_extractor,
                        display_name, description, **kwargs)
 
     def drop_algorithm(self, name: str) -> None:
+        """
+从文档处理服务中移除指定算法， 该方法会自动从数据库中删除算法信息，后续无法使用该算法处理文档。
+
+Args:
+    name (str): 要移除的算法唯一标识。
+"""
         return self._dispatch('drop_algorithm', name)

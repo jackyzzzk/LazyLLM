@@ -20,6 +20,20 @@ from .download_tool import download_file  # noqa: F401
 
 
 class LazyLLMAgentBase(ModuleBase):
+    """LazyLLMAgentBase 是所有内置 Agent 的公共基类，负责统一的工具管理、技能启用、提示词注入与执行流程封装。
+
+Args:
+    llm: 大语言模型实例。
+    tools (List[str]): 工具名称列表。
+    max_retries (int): 工具调用最大迭代次数，默认 5。
+    return_trace (bool): 是否返回中间执行轨迹。
+    stream (bool): 是否启用流式输出。
+    return_last_tool_calls (bool): 若为True，在模型结束且存在工具调用记录时返回最后一次的工具调用轨迹。
+    skills (bool | str | List[str]): Skills 配置。True 启用 Skills 并自动筛选；传入 str/list 启用指定技能。
+    memory: 预留的记忆/上下文对象。
+    desc (str): Agent 能力描述。
+    workspace (str): Agent 默认工作目录，默认是 `config['home']/agent_workspace`。
+"""
     def __init__(self, llm=None, tools=None, max_retries: int = 5, return_trace: bool = False,
                  stream: bool = False, return_last_tool_calls: bool = False,
                  skills: Optional[Union[bool, str, Iterable[str]]] = None, memory=None,

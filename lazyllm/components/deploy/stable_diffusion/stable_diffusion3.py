@@ -211,6 +211,26 @@ def call_wan(model, prompt):
 
 
 class StableDiffusionDeploy(LazyLLMDeployBase):
+    """Stable Diffusion 模型部署类。该类用于将SD模型部署到指定服务器上，以便可以通过网络进行调用。
+
+Args:
+    launcher (Optional[LazyLLMLaunchersBase], optional): 启动器实例。默认为 ``None``
+    log_path (Optional[str], optional): 日志文件路径。默认为 ``None``
+    trust_remote_code (bool, optional): 是否信任远程代码。默认为 ``True``
+    port (Optional[int], optional): 服务端口号。默认为 ``None``
+
+
+
+Examples:
+    >>> from lazyllm import launchers, UrlModule
+    >>> from lazyllm.components import StableDiffusionDeploy
+    >>> deployer = StableDiffusionDeploy(launchers.remote())
+    >>> url = deployer(base_model='stable-diffusion-3-medium')
+    >>> model = UrlModule(url=url)
+    >>> res = model('a tiny cat.')
+    >>> print(res)
+    ... <lazyllm-query>{"query": "", "files": ["path/to/sd3/image_xxx.png"]}
+    """
     message_format = None
     keys_name_handle = None
     default_headers = {'Content-Type': 'application/json'}

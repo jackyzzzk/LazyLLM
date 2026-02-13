@@ -72,6 +72,40 @@ def _get_chatbot_kwargs(height: int = 700, gradio_ver: Tuple[int, ...] = (5, 0, 
     return kwargs, use_messages_format
 
 class WebModule(ModuleBase):
+    """WebModule是LazyLLM为开发者提供的基于Web的交互界面。在初始化并启动一个WebModule之后，开发者可以从页面上看到WebModule背后的模块结构，并将Chatbot组件的输入传输给自己开发的模块进行处理。
+模块返回的结果和日志会直接显示在网页的“处理日志”和Chatbot组件上。除此之外，WebModule支持在网页上动态加入Checkbox或Text组件用于向模块发送额外的参数。
+WebModule页面还提供“使用上下文”，“流式输出”和“追加输出”的Checkbox，可以用来改变页面和后台模块的交互方式。
+
+
+Args:
+    m (Any): 要包装的模型对象，可以是lazyllm.FlowBase子类或其他可调用对象。
+    components (Dict[Any, Any], optional): 额外的UI组件配置，默认为空字典。
+    title (str, optional): Web页面标题，默认为'对话演示终端'。
+    port (Optional[Union[int, range, tuple, list]], optional): 服务端口号或端口范围，默认为20500-20799。
+    history (List[Any], optional): 历史会话模块列表，默认为空列表。
+    text_mode (Optional[Mode], optional): 文本输出模式（Dynamic/Refresh/Appendix），默认为Dynamic。
+    trace_mode (Optional[Mode], optional): 追踪模式参数(已弃用)。
+    audio (bool, optional): 是否启用音频输入功能，默认为False。
+    stream (bool, optional): 是否启用流式输出，默认为False。
+    files_target (Optional[Union[Any, List[Any]]], optional): 文件处理的目标模块，默认为None。
+    static_paths (Optional[Union[str, Path, List[Union[str, Path]]]], optional): 静态资源路径，默认为None。
+    encode_files (bool, optional): 是否对文件路径进行编码处理，默认为False。
+    share (bool, optional): 是否生成可分享的公共链接，默认为False。
+
+
+Examples:
+    >>> import lazyllm
+    >>> def func2(in_str, do_sample=True, temperature=0.0, *args, **kwargs):
+    ...     return f"func2:{in_str}|do_sample:{str(do_sample)}|temp:{temperature}"
+    ...
+    >>> m1=lazyllm.ActionModule(func2)
+    >>> m1.name="Module1"
+    >>> w = lazyllm.WebModule(m1, port=[20570, 20571, 20572], components={
+    ...         m1:[('do_sample', 'Checkbox', True), ('temperature', 'Text', 0.1)]},
+    ...                       text_mode=lazyllm.tools.WebModule.Mode.Refresh)
+    >>> w.start()
+    193703: 2024-06-07 10:26:00 lazyllm SUCCESS: ...
+    """
     class Mode:
         Dynamic = 0
         Refresh = 1
@@ -144,6 +178,17 @@ class WebModule(ModuleBase):
         return cach_path
 
     def init_web(self, component_descs):
+        """初始化 Web UI 页面。
+该方法使用 Gradio 构建对话界面，并将组件绑定到事件，支持会话选择、流式输出、上下文控制、多模态输入等功能。该方法返回构建完成的 Gradio Blocks 对象。
+
+Args:
+    component_descs (List[Tuple]): 组件描述列表，每项为五元组 (module, group_name, name, component_type, value)，
+        例如：('MyModule', 'GroupA', 'use_cache', 'Checkbox', True)。
+
+**Returns:**
+
+- gr.Blocks: 构建好的 Gradio 页面对象，可用于 launch 启动 Web 服务。
+"""
         if hasattr(gr, 'set_static_paths'):
             gr.set_static_paths(self._static_paths)
         blocks_kwargs, css_to_inject = _get_blocks_kwargs(css, self.title, analytics_enabled=False)
@@ -633,9 +678,15 @@ class WebModule(ModuleBase):
         return self
 
     def wait(self):
+        """阻塞主线程，等待 Web 页面关闭。
+该方法会阻塞当前线程直到 Web 页面（Gradio demo）被关闭，适用于部署后阻止程序提前退出的场景。
+"""
         self.demo.block_thread()
 
     def stop(self):
+        """关闭 Web 页面并清理资源。
+如果 Web 页面已初始化，则关闭 Gradio demo，释放资源并重置 `demo` 与 `url` 属性。
+"""
         if self.demo:
             self.demo.close()
             del self.demo

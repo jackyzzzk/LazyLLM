@@ -41,6 +41,26 @@ ch_qustion_rewrite_prompt = """
 不要输出任何其他内容，仅输出改写后的问题
 """
 class QustionRewrite(ModuleBase):
+    """问题改写模块。
+
+该模块使用语言模型对用户输入的问题进行改写，可根据输出格式选择返回字符串或列表。
+
+`__init__(self, base_model, rewrite_prompt="", formatter="str")`
+使用提示词和模型初始化问题改写模块。
+
+Args:
+    base_model (Union[str, TrainableModule, OnlineChatModuleBase]): 问题改写所使用的模型路径或已初始化模型。
+    rewrite_prompt (str): 用户自定义的改写提示词。
+    formatter (str): 输出格式，可选 "str"（字符串）或 "list"（按行分割的列表）。
+
+
+Examples:
+    >>> from lazyllm.components import QustionRewrite
+    >>> rewriter = QustionRewrite(base_model="chatglm", rewrite_prompt="请将问题改写为更适合检索的形式", formatter="list")
+    >>> result = rewriter("中国的最高山峰是什么？")
+    >>> print(result)
+    ... ['中国的最高山峰是哪一座？', '中国海拔最高的山是什么？']
+    """
     def __init__(
         self,
         base_model: Union[str, TrainableModule, OnlineChatModuleBase],
@@ -56,6 +76,39 @@ class QustionRewrite(ModuleBase):
         self.formatter = formatter
 
     def choose_prompt(self, prompt: str):
+        """
+根据输入提示的语言选择合适的提示模板。
+
+此方法分析输入提示字符串并确定使用中文还是英文提示模板。它检查提示字符串中的每个字符，如果任何字符落在中文字符Unicode范围内（\u4e00-\u9fff），则返回中文提示模板；否则返回英文提示模板。
+
+Args:
+    prompt (str): 要分析语言检测的输入提示字符串。
+
+**Returns:**
+
+- str: 选定的提示模板字符串（中文或英文版本）。
+
+
+Examples:
+
+    >>> from lazyllm.tools.actors.qustion_rewrite import QustionRewrite
+
+    # Example 1: English prompt (no Chinese characters)
+    >>> rewriter = QustionRewrite("gpt-3.5-turbo")
+    >>> prompt_template = rewriter.choose_prompt("How to implement machine learning?")
+    >>> print("Template contains Chinese:", "中文" in prompt_template)
+    Template contains Chinese: False
+
+    # Example 2: Chinese prompt (contains Chinese characters)
+    >>> prompt_template = rewriter.choose_prompt("如何实现机器学习？")
+    >>> print("Template contains Chinese:", "中文" in prompt_template)
+    Template contains Chinese: True
+
+    # Example 3: Mixed language prompt (contains Chinese characters)
+    >>> prompt_template = rewriter.choose_prompt("What is 机器学习?")
+    >>> print("Template contains Chinese:", "中文" in prompt_template)
+    Template contains Chinese: True
+    """
         # Use chinese prompt if intent elements have chinese character, otherwise use english version
         for ele in prompt:
             # chinese unicode range

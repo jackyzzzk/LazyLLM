@@ -57,6 +57,17 @@ class _SenseNovaBase(object):
 
 
 class SenseNovaChat(OnlineChatModuleBase, FileHandlerBase, _SenseNovaBase):
+    """SenseNovaChat是商汤科技开放平台的LLM接口管理组件，继承自OnlineChatModuleBase和FileHandlerBase，具备对话和文件处理能力。
+
+Args:
+    base_url (str): API的基础URL，默认为"https://api.sensenova.cn/compatible-mode/v1/"。
+    model (str): 使用的模型名称，默认为"SenseChat-5"。
+    api_key (str): 商汤API密钥，如果未提供则从lazyllm.config['sensenova_api_key']读取。
+    secret_key (str): 商汤密钥，如果未提供则从lazyllm.config['sensenova_secret_key']读取。
+    stream (bool): 是否启用流式输出，默认为True。
+    return_trace (bool): 是否返回调用链跟踪信息，默认为False。
+    **kwargs: 其他传递给基类的参数。
+"""
     TRAINABLE_MODEL_LIST = ['nova-ptc-s-v2']
     VLM_MODEL_PREFIX = ['SenseNova-V6-Turbo', 'SenseChat-Vision', 'SenseNova-V6-Pro', 'SenseNova-V6-Reasoner',
                         'SenseNova-V6-5-Pro', 'SenseNova-V6-5-Turbo']
@@ -183,6 +194,11 @@ class SenseNovaChat(OnlineChatModuleBase, FileHandlerBase, _SenseNovaBase):
             return (fine_tuned_model, status)
 
     def set_deploy_parameters(self, **kw):
+        """设置模型部署的参数。
+
+Args:
+    **kw: 部署参数的键值对，这些参数将在创建部署时使用。
+"""
         self._deploy_paramters = kw
 
     def _create_deployment(self) -> Tuple[str, str]:
@@ -221,6 +237,14 @@ class SenseNovaChat(OnlineChatModuleBase, FileHandlerBase, _SenseNovaBase):
 
 
 class SenseNovaEmbed(LazyLLMOnlineEmbedModuleBase, _SenseNovaBase):
+    """商汤科技SenseNova嵌入模型模块，用于文本向量化操作。提供与商汤科技SenseNova嵌入模型交互的接口，支持文本到向量的转换功能。继承自OnlineEmbeddingModuleBase和_SenseNovaBase。
+
+Args:
+    embed_url (str, optional): 嵌入API的URL地址，默认为"https://api.sensenova.cn/v1/llm/embeddings"。
+    embed_model_name (str, optional): 嵌入模型名称，默认为"nova-embedding-stable"。
+    api_key (str, optional): API访问密钥，默认为None。
+    secret_key (str, optional): API秘密密钥，默认为None。
+"""
 
     def __init__(self,
                  embed_url: str = 'https://api.sensenova.cn/v1/llm/embeddings',

@@ -7,6 +7,13 @@ from .readerBase import LazyLLMReaderBase
 from ..doc_node import DocNode
 
 class MarkdownReader(LazyLLMReaderBase):
+    """用于读取和解析 Markdown 文件的模块。支持去除超链接和图片，按标题和内容将 Markdown 划分成若干文本段落节点。
+
+Args:
+    remove_hyperlinks (bool): 是否移除超链接，默认 True。
+    remove_images (bool): 是否移除图片标记，默认 True。
+    return_trace (bool): 是否记录处理过程的 trace，默认为 True。
+"""
     def __init__(self, remove_hyperlinks: bool = True, remove_images: bool = True, return_trace: bool = True) -> None:
         super().__init__(return_trace=return_trace)
         self._remove_hyperlinks = remove_hyperlinks
@@ -37,10 +44,28 @@ class MarkdownReader(LazyLLMReaderBase):
                 for key, value in markdown_tups]
 
     def remove_images(self, content: str) -> str:
+        """移除内容中形如 ![[...]] 的自定义图片标签。
+
+Args:
+    content (str): 输入的 markdown 内容。
+
+**Returns:**
+
+- str: 移除图片标签后的内容。
+"""
         pattern = r'!{1}\[\[(.*)\]\]'
         return re.sub(pattern, '', content)
 
     def remove_hyperlinks(self, content: str) -> str:
+        """移除 Markdown 超链接，将 [文本](链接) 转换为纯文本。
+
+Args:
+    content (str): 输入的 markdown 内容。
+
+**Returns:**
+
+- str: 移除超链接后的内容，仅保留链接文本。
+"""
         pattern = r'\[(.*)\]\((.*)\)'
         return re.sub(pattern, r'\1', content)
 

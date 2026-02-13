@@ -6,6 +6,56 @@ from typing import Dict
 import lazyllm
 
 class FileHandlerBase:
+    """FileHandlerBase 是处理微调数据文件的基类，主要用于验证和转换微调数据格式。  
+该类不支持直接实例化，需要子类继承并实现特定的文件格式转换逻辑。
+
+功能包括：
+    1. 验证微调数据文件格式是否为标准的 `.jsonl`。
+    2. 检查每条数据是否包含符合规范的消息格式（包含 `role` 和 `content` 字段）。
+    3. 验证角色类型是否在允许范围内（system、knowledge、user、assistant）。
+    4. 确保每个对话示例包含至少一条 assistant 回复。
+    5. 提供临时文件存储机制，便于后续处理。
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.module.llms.onlinemodule.fileHandler import FileHandlerBase
+    >>> import tempfile
+    >>> import json
+    >>> sample_data = [
+    ...     {"messages": [{"role": "user", "content": "Hello"}, {"role": "assistant", "content": "Hi there!"}]},
+    ...     {"messages": [{"role": "user", "content": "How are you?"}, {"role": "assistant", "content": "I'm doing well, thank you!"}]}
+    ... ] 
+    >>> with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+    ...     for item in sample_data:
+    ...         f.write(json.dumps(item, ensure_ascii=False) + '
+    ')
+    ...     temp_file_path = f.name
+    >>> class CustomFileHandler(FileHandlerBase):
+    ...     def _convert_file_format(self, filepath: str) -> str:
+    ...         with open(filepath, 'r', encoding='utf-8') as f:
+    ...             data = [json.loads(line) for line in f]
+    ...         converted_data = []
+    ...         for item in data:
+    ...             messages = item.get('messages', [])
+    ...             conversation = []
+    ...             for msg in messages:
+    ...                 conversation.append(f"{msg['role']}: {msg['content']}")
+    ...             converted_data.append('
+    '.join(conversation))
+    ...         return '
+    ---
+    '.join(converted_data)
+    >>> handler = CustomFileHandler()
+    >>> try:
+    ...     result = handler.get_finetune_data(temp_file_path)
+    ...     print("数据验证和转换成功")
+    ... except Exception as e:
+    ...     print(f"错误: {e}")
+    ... finally:
+    ...     import os
+    ...     os.unlink(temp_file_path)
+    """
 
     def __init__(self):
         self._roles = ['system', 'knowledge', 'user', 'assistant']
@@ -68,6 +118,11 @@ class FileHandlerBase:
             lazyllm.LOG.info('No errors found')
 
     def get_finetune_data(self, filepath: str) -> str:
+        """获取并处理微调数据文件，包括验证文件格式和转换为目标平台支持的格式。
+
+Args:
+    filepath (str): 微调数据文件的路径，必须是.jsonl格式
+"""
         self._validate_json(filepath)
         self._save_tempfile(self._convert_file_format(filepath))
 

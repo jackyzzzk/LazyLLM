@@ -15,6 +15,34 @@ class CollectionDesc(pydantic.BaseModel):
 
 
 class MongoDBManager(DBManager):
+    """MongoDBManager是与MongoB数据库进行交互的专用工具。它提供了检查连接，获取数据库连接对象，执行查询的方法。
+
+Args:
+   user (str): MongoDB用户名
+    password (str): MongoDB密码
+    host (str): MongoDB服务器地址
+    port (int): MongoDB服务器端口
+    db_name (str): 数据库名称
+    collection_name (str): 集合名称
+    **kwargs: 额外配置参数，包括：
+        - options_str (str): 连接选项字符串
+        - collection_desc_dict (dict): 集合描述字典
+
+
+Examples:
+    >>> from lazyllm.components import MongoDBManager
+    >>> mgr = MongoDBManager(
+    ...     user="admin",
+    ...     password="123456",
+    ...     host="localhost",
+    ...     port=27017,
+    ...     db_name="mydb",
+    ...     collection_name="books"
+    ... )
+    >>> result = mgr.execute_query('[{"$match": {"author": "Tolstoy"}}]')
+    >>> print(result)
+    ... '[{"title": "War and Peace", "author": "Tolstoy"}]'
+    """
     MAX_TIMEOUT_MS = 5000
 
     def __init__(self, user: str, password: str, host: str, port: int, db_name: str, collection_name: str, **kwargs):
@@ -46,6 +74,16 @@ class MongoDBManager(DBManager):
 
     @contextmanager
     def get_client(self):
+        """这是一个上下文管理器，它创建并返回一个数据库会话连接对象，并在使用完成后自动关闭会话。
+使用方式例如：
+
+with mongodb_manager.get_client() as client:
+    all_dbs = client.list_database_names()
+
+**Returns:**
+
+- pymongo.MongoClient: 连接 MongoDB 数据库的对象
+"""
         client = pymongo.MongoClient(self._conn_url, serverSelectionTimeoutMS=self.MAX_TIMEOUT_MS)
         try:
             yield client
@@ -59,6 +97,11 @@ class MongoDBManager(DBManager):
         return self._desc
 
     def set_desc(self, schema_desc_dict: dict):
+        """对于MongoDBManager搭配LLM使用自然语言查询的文档集设置其必须的关键字描述。注意，查询需要用到的关系字都必须提供，因为MonoDB无法像SQL数据库一样获得表结构信息
+
+Args:
+    schema_desc_dict (dict): 文档集的关键字描述
+"""
         self._collection_desc_dict = schema_desc_dict
         if schema_desc_dict is None:
             with self.get_client() as client:
@@ -84,6 +127,12 @@ class MongoDBManager(DBManager):
             self._desc += json.dumps(collection_desc.schema_type, ensure_ascii=False, indent=4)
 
     def check_connection(self) -> DBResult:
+        """检查当前MongoDBManager的连接状态。
+
+**Returns:**
+
+- DBResult: DBResult.status 连接成功(True), 连接失败(False)。DBResult.detail 包含失败信息
+"""
         try:
             with pymongo.MongoClient(self._conn_url, serverSelectionTimeoutMS=self.MAX_TIMEOUT_MS) as client:
                 _ = client.server_info()

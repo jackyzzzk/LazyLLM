@@ -8,6 +8,44 @@ from lazyllm.components.utils.downloader import ModelManager
 
 
 class OnlineEmbeddingModuleBase(LazyLLMOnlineBase):
+    """OnlineEmbeddingModuleBase是管理开放平台的嵌入模型接口的基类，用于请求文本获取嵌入向量。不建议直接对该类进行直接实例化。需要特定平台类继承该类进行实例化。
+
+如果你需要支持新的开放平台的嵌入模型的能力，请让你自定义的类继承自OnlineEmbeddingModuleBase：
+
+1. 如果新平台的嵌入模型的请求和返回数据格式都和openai一样，可以不用做任何处理，只传url和模型即可
+2. 如果新平台的嵌入模型的请求或者返回的数据格式和openai不一样，需要重写_encapsulated_data或_parse_response方法。
+3. 配置新平台支持的api_key到全局变量，通过lazyllm.config.add(变量名，类型，默认值，环境变量名)进行添加
+
+Args:
+    embed_url (str): 嵌入API的URL地址。
+    api_key (str): API访问密钥。
+    embed_model_name (str): 嵌入模型名称。
+    return_trace (bool, optional): 是否返回追踪信息，默认为False。
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.module import OnlineEmbeddingModuleBase
+    >>> class NewPlatformEmbeddingModule(OnlineEmbeddingModuleBase):
+    ...     def __init__(self,
+    ...                 embed_url: str = '<new platform embedding url>',
+    ...                 embed_model_name: str = '<new platform embedding model name>'):
+    ...         super().__init__(embed_url, lazyllm.config['new_platform_api_key'], embed_model_name)
+    ...
+    >>> class NewPlatformEmbeddingModule1(OnlineEmbeddingModuleBase):
+    ...     def __init__(self,
+    ...                 embed_url: str = '<new platform embedding url>',
+    ...                 embed_model_name: str = '<new platform embedding model name>'):
+    ...         super().__init__(embed_url, lazyllm.config['new_platform_api_key'], embed_model_name)
+    ...
+    ...     def _encapsulated_data(self, text:str, **kwargs):
+    ...         pass
+    ...         return json_data
+    ...
+    ...     def _parse_response(self, response: dict[str, any]):
+    ...         pass
+    ...         return embedding
+    """
     NO_PROXY = True
     __lazyllm_registry_disable__ = True
 
@@ -85,6 +123,22 @@ class OnlineEmbeddingModuleBase(LazyLLMOnlineBase):
             return [res.get('embedding', []) for res in data]
 
     def run_embed_batch(self, input: List, data: List, proxies, url: str = None, **kwargs):
+        """执行批量嵌入处理的内部方法。
+
+此方法负责处理批量文本嵌入请求，支持单线程和多线程两种处理模式。
+当遇到请求失败时，会自动调整批处理大小并重试，提供健壮的错误处理机制。
+
+Args:
+    input (List): 原始的输入文本列表
+    data (List): 封装好的批量请求数据列表
+    proxies: 代理设置，如果NO_PROXY为True则设置为None
+    url (str, optional): 本次请求使用的完整接口地址，默认为初始传入的 embed_url
+    **kwargs: 其他关键字参数
+
+**Returns:**
+
+- 嵌入向量列表的列表，每个子列表对应一个输入文本的嵌入向量
+"""
         ret = [[] for _ in range(len(input))]
         flag = False
         url = url or self._embed_url

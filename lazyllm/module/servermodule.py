@@ -27,6 +27,14 @@ _register_trim_module({'lazyllm.module.servermodule': ['__call__']})
 
 
 class LLMBase(object):
+    """大语言模型模块的基类，继承自 ModuleBase。  
+负责管理流式输出、Prompt 和格式化器的初始化与切换，处理输入中的文件信息，支持实例共享。
+
+Args:
+    stream (bool 或 dict): 是否启用流式输出或流式配置，默认为 False。
+    return_trace (bool): 是否返回执行过程的 trace，默认为 False。
+    init_prompt (bool): 是否在初始化时自动创建默认 Prompt，默认为 True。
+"""
     def __init__(self, stream: Union[bool, Dict[str, str]] = False,
                  init_prompt: bool = True, type: Optional[Union[str, LLMType]] = None):
         self._stream = stream
@@ -48,6 +56,16 @@ class LLMBase(object):
         return input, files
 
     def prompt(self, prompt: Optional[str] = None, history: Optional[List[List[str]]] = None):
+        """设置或切换 Prompt。支持 None、PrompterBase 子类或字符串/字典类型创建 ChatPrompter。
+
+Args:
+    prompt (str/dict/PrompterBase/None): 要设置的 Prompt。
+    history (list): 对话历史，仅当 prompt 为字符串或字典时有效。
+
+**Returns:**
+
+- self: 便于链式调用。
+"""
         if prompt is None:
             assert not history, 'history is not supported in EmptyPrompter'
             self._prompt = EmptyPrompter()
@@ -61,12 +79,34 @@ class LLMBase(object):
         return self
 
     def formatter(self, format: Optional[FormatterBase] = None):
+        """设置或切换输出格式化器。支持 None、FormatterBase 子类或可调用对象。
+
+Args:
+    format (FormatterBase/Callable/None): 格式化器对象或函数，默认为 None。
+
+**Returns:**
+
+- self: 便于链式调用。
+"""
         assert format is None or isinstance(format, FormatterBase) or callable(format), 'format must be None or Callable'
         self._formatter = format or EmptyFormatter()
         return self
 
     def share(self, prompt: Optional[Union[str, dict, PrompterBase]] = None, format: Optional[FormatterBase] = None,
               stream: Optional[Union[bool, Dict[str, str]]] = None, history: Optional[List[List[str]]] = None):
+        """创建当前实例的浅拷贝，并可重新设置 prompt、formatter、stream 等属性。  
+适用于多会话或多 Agent 共享基础配置但个性化部分参数的场景。
+
+Args:
+    prompt (str/dict/PrompterBase/None): 新的 Prompt，可选。
+    format (FormatterBase/None): 新的格式化器，可选。
+    stream (bool/dict/None): 新的流式设置，可选。
+    history (list/None): 新的对话历史，仅在设置 Prompt 时有效。
+
+**Returns:**
+
+- LLMBase: 新的共享实例。
+"""
         new = copy.copy(self)
         new._hooks = set()
         new._set_mid()
@@ -143,6 +183,26 @@ class _UrlHelper(object):
             redis_client['url'].delete(self._url_id)
 
 class UrlModule(ModuleBase, LLMBase, _UrlHelper):
+    """可以将ServerModule部署得到的Url包装成一个Module，调用 ``__call__`` 时会访问该服务。
+
+Args:
+    url (str): 要包装的服务的Url，默认为空字符串
+    stream (bool|Dict[str, str]): 是否流式请求和输出，默认为非流式
+    return_trace (bool): 是否将结果记录在trace中，默认为False
+    init_prompt (bool): 是否初始化prompt，默认为True
+
+
+Examples:
+    >>> import lazyllm
+    >>> def demo(input): return input * 2
+    ... 
+    >>> s = lazyllm.ServerModule(demo, launcher=lazyllm.launchers.empty(sync=False))
+    >>> s.start()
+    INFO:     Uvicorn running on http://0.0.0.0:35485
+    >>> u = lazyllm.UrlModule(url=s._url)
+    >>> print(u(1))
+    2
+    """
 
     def __new__(cls, *args, **kw):
         if cls is not UrlModule:
@@ -176,7 +236,20 @@ class UrlModule(ModuleBase, LLMBase, _UrlHelper):
     def _extract_and_format(self, output: str) -> str:
         return output
 
-    def forward(self, *args, **kw): raise NotImplementedError
+    def forward(self, *args, **kw):
+        """定义了每次执行的计算步骤，ModuleBase的所有的子类都需要重写这个函数。
+
+
+Examples:
+    >>> import lazyllm
+    >>> class MyModule(lazyllm.module.ModuleBase):
+    ...    def forward(self, input):
+    ...        return input + 1
+    ...
+    >>> MyModule()(1)
+    2
+    """
+        raise NotImplementedError
 
     def __call__(self, *args, **kw):
         assert self._url is not None, f'Please start {self.__class__} first'
@@ -225,6 +298,50 @@ class _ServerModuleImpl(ModuleBase, _UrlHelper):
         return self
 
 class ServerModule(UrlModule):
+    """ServerModule 类，继承自 UrlModule，封装了将任意可调用对象部署为 API 服务的能力。  
+通过 FastAPI 实现，可以启动一个主服务和多个卫星服务，并支持流式调用、预处理和后处理逻辑。  
+既可以传入本地可调用对象启动服务，也可以通过 URL 直接连接远程服务。
+
+Args:
+    m (Optional[Union[str, ModuleBase]]): 被包装成服务的模块或其名称。若为字符串则表示 URL，此时 `url` 必须为 None；若为 ModuleBase 则包装为服务。
+    pre (Optional[Callable]): 前处理函数，在服务进程执行，默认为 ``None``。
+    post (Optional[Callable]): 后处理函数，在服务进程执行，默认为 ``None``。
+    stream (Union[bool, Dict]): 是否开启流式输出。可以是布尔值，或包含流式配置的字典，默认为 ``False``。
+    return_trace (Optional[bool]): 是否返回调试追踪信息。默认为 ``False``。
+    port (Optional[int]): 指定服务部署的端口。默认为 ``None``，将自动分配端口。
+    pythonpath (Optional[str]): 传递给子进程的 PYTHONPATH 环境变量，默认为 ``None``。
+    launcher (Optional[LazyLLMLaunchersBase]): 启动服务所使用的 Launcher，默认使用异步远程部署。
+    url (Optional[str]): 已部署服务的 URL 地址。若提供，则 `m` 必须为 None。
+
+
+Examples:
+    >>> import lazyllm
+    >>> def demo(input): return input * 2
+    ...
+    >>> s = lazyllm.ServerModule(demo, launcher=launchers.empty(sync=False))
+    >>> s.start()
+    INFO:     Uvicorn running on http://0.0.0.0:35485
+    >>> print(s(1))
+    2
+
+    >>> class MyServe(object):
+    ...     def __call__(self, input):
+    ...         return 2 * input
+    ...
+    ...     @lazyllm.FastapiApp.post
+    ...     def server1(self, input):
+    ...         return f'reply for {input}'
+    ...
+    ...     @lazyllm.FastapiApp.get
+    ...     def server2(self):
+    ...        return f'get method'
+    ...
+    >>> m = lazyllm.ServerModule(MyServe(), launcher=launchers.empty(sync=False))
+    >>> m.start()
+    INFO:     Uvicorn running on http://0.0.0.0:32028
+    >>> print(m(1))
+    2
+    """
     def __init__(self, m: Optional[Union[str, ModuleBase]] = None, pre: Optional[Callable] = None,
                  post: Optional[Callable] = None, stream: Union[bool, Dict] = False,
                  return_trace: bool = False, port: Optional[int] = None, pythonpath: Optional[str] = None,
@@ -247,9 +364,15 @@ class ServerModule(UrlModule):
     _url_id = property(lambda self: self._impl._module_id)
 
     def wait(self):
+        """等待当前模块服务的启动或执行过程完成。  
+通常用于阻塞主线程，直到服务正常结束或中断。  
+"""
         self._impl._launcher.wait()
 
     def stop(self):
+        """停止当前模块服务以及其相关子进程。  
+调用后，模块将不再响应请求。  
+"""
         self._impl.stop()
 
     @property

@@ -14,6 +14,31 @@ lazyllm.config.add('eval_result_dir', str, os.path.join(os.path.expanduser(lazyl
                    'EVAL_RESULT_DIR', description='The default result directory for eval.')
 
 class BaseEvaluator(ModuleBase):
+    """评估模块的抽象基类。
+
+该类定义了模型评估的标准接口，支持并发处理、输入校验和评估结果的自动保存，同时内置了重试机制。
+
+Args:
+    concurrency (int): 评估过程中使用的并发线程数。
+    retry (int): 每个样本的最大重试次数。
+    log_base_name (Optional[str]): 用于保存结果文件的日志文件名前缀（可选）。
+
+
+Examples:
+    >>> from lazyllm.components import BaseEvaluator
+    >>> class SimpleAccuracyEvaluator(BaseEvaluator):
+    ...     def _process_one_data_impl(self, data):
+    ...         return {
+    ...             "final_score": float(data["pred"] == data["label"])
+    ...         }
+    >>> evaluator = SimpleAccuracyEvaluator()
+    >>> score = evaluator([
+    ...     {"pred": "yes", "label": "yes"},
+    ...     {"pred": "no", "label": "yes"}
+    ... ])
+    >>> print(score)
+    ... 0.5
+    """
     def __init__(self, concurrency=1, retry=3, log_base_name=None):
         super().__init__()
         self._concurrency = concurrency
@@ -51,6 +76,19 @@ class BaseEvaluator(ModuleBase):
         return total_score / len(results)
 
     def process_one_data(self, data, progress_bar=None):
+        """处理单条数据。
+
+Args:
+    data: 要处理的数据项。
+    progress_bar (Optional[tqdm]): 进度条对象，默认为None。
+
+**Returns:**
+
+- Any: 返回处理结果。
+
+注意：
+    该方法会在处理数据时自动更新进度条，并使用线程锁确保线程安全。
+"""
         res = self._process_one_data_impl(data)
         if progress_bar is not None:
             with self._lock:
@@ -62,6 +100,17 @@ class BaseEvaluator(ModuleBase):
         pass
 
     def validate_inputs_key(self, data):
+        """验证输入数据的格式和必要键。
+
+Args:
+    data: 要验证的数据。
+
+Raises:
+    RuntimeError: 当数据格式不正确或缺少必要键时抛出。
+        - 如果data不是列表
+        - 如果列表中的项不是字典
+        - 如果字典中缺少必要的键
+"""
         if not isinstance(data, list):
             raise RuntimeError(f'The data should be a list, but got {type(data)}')
         for i, item in enumerate(data):
@@ -74,12 +123,39 @@ class BaseEvaluator(ModuleBase):
                     f'keys: {self._necessary_keys}, but cannot find: {missing_keys}')
 
     def batch_process(self, data, progress_bar):
+        """批量处理数据。
+
+Args:
+    data: 要处理的数据列表。
+    progress_bar (tqdm): 进度条对象。
+
+**Returns:**
+
+- List: 返回处理结果列表。
+
+流程：
+    1. 验证输入数据的格式和必要键
+    2. 使用并发处理器处理数据
+    3. 保存处理结果
+"""
         self.validate_inputs_key(data)
         results = self._warp(data, progress_bar=progress_bar)
         self.save_res(results)
         return results
 
     def save_res(self, data, eval_res_save_name=None):
+        """保存评估结果。
+
+Args:
+    data: 要保存的数据。
+    eval_res_save_name (Optional[str]): 保存文件的基础名称，默认使用类名。
+
+保存格式：
+    - 文件名格式：{filename}_{timestamp}.json
+    - 时间戳格式：YYYYMMDDHHmmSS
+    - 保存路径：lazyllm.config['eval_result_dir']
+    - JSON格式，使用4空格缩进
+"""
         save_dir = lazyllm.config['eval_result_dir']
         os.makedirs(save_dir, exist_ok=True)
 

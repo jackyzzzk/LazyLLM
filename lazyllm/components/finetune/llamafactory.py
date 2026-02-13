@@ -13,6 +13,63 @@ from .llama_factory.model_mapping import match_longest_prefix, llamafactory_mapp
 
 
 class LlamafactoryFinetune(LazyLLMFinetuneBase):
+    """此类是 ``LazyLLMFinetuneBase`` 的子类，基于 [LLaMA-Factory](https://github.com/hiyouga/LLaMA-Factory) 框架提供的训练能力，用于对大语言模型(或视觉语言模型)进行训练。
+
+Args:
+    base_model: 用于进行训练的基模型路径。支持本地路径，若路径不存在则尝试从配置的模型路径中查找。
+    target_path: 训练完成后，模型权重保存的目标路径。
+    merge_path (str, optional): 模型合并LoRA权重后的保存路径，默认为None。
+        如果未指定，将在 ``target_path`` 下自动创建两个目录：
+        - "lazyllm_lora"（用于存放LoRA训练权重）
+        - "lazyllm_merge"（用于存放合并后的模型权重）
+    config_path (str, optional): 训练配置的 YAML 文件路径，默认None。
+        如果未指定，则使用默认配置文件 ``llama_factory/sft.yaml``。
+        配置文件支持覆盖默认训练参数。
+    export_config_path (str, optional): LoRA权重合并导出配置的 YAML 文件路径，默认None。
+        如果未指定，则使用默认配置文件 ``llama_factory/lora_export.yaml``。
+    lora_r (int, optional): LoRA的秩（rank），若提供则覆盖配置中的 ``lora_rank``。
+    modules_to_save (str, optional): 额外需要保存的模型模块名称列表，格式类似于Python列表字符串，如 "[module1,module2]"。
+    lora_target_modules (str, optional): 目标LoRA微调的模块名称列表，格式同上。
+    launcher (lazyllm.launcher, optional): 微调任务的启动器，默认为单卡同步远程启动器 ``launchers.remote(ngpus=1, sync=True)``。
+    **kw: 关键字参数，用于动态覆盖默认训练配置中的参数。
+
+此类的关键字参数及其默认值如下：
+
+Keyword Args:
+    stage (typing.Literal['pt', 'sft', 'rm', 'ppo', 'dpo', 'kto']): 默认值是：``sft``。将在训练中执行的阶段。
+    do_train (bool): 默认值是：``True``。是否运行训练。
+    finetuning_type (typing.Literal['lora', 'freeze', 'full']): 默认值是：``lora``。要使用的微调方法。
+    lora_target (str): 默认值是：``all``。要应用LoRA的目标模块的名称。使用逗号分隔多个模块。使用`all`指定所有线性模块。
+    template (typing.Optional[str]): 默认值是：``None``。用于构建训练和推理提示的模板。
+    cutoff_len (int): 默认值是：``1024``。数据集中token化后输入的截止长度。
+    max_samples (typing.Optional[int]): 默认值是：``1000``。出于调试目的，截断每个数据集的示例数量。
+    overwrite_cache (bool): 默认值是：``True``。覆盖缓存的训练和评估集。
+    preprocessing_num_workers (typing.Optional[int]): 默认值是：``16``。用于预处理的进程数。
+    dataset_dir (str): 默认值是：``lazyllm_temp_dir``。包含数据集的文件夹的路径。如果没有明确指定，LazyLLM将在当前工作目录的 ``.temp`` 文件夹中生成一个 ``dataset_info.json`` 文件，供LLaMA-Factory使用。
+    logging_steps (float): 默认值是：``10``。每X个更新步骤记录一次日志。应该是整数或范围在 ``[0,1)`` 的浮点数。如果小于1，将被解释为总训练步骤的比例。
+    save_steps (float): 默认值是：``500``。每X个更新步骤保存一次检查点。应该是整数或范围在 ``[0,1)`` 的浮点数。如果小于1，将被解释为总训练步骤的比例。
+    plot_loss (bool): 默认值是：``True``。是否保存训练损失曲线。
+    overwrite_output_dir (bool): 默认值是：``True``。覆盖输出目录的内容。
+    per_device_train_batch_size (int): 默认值是：``1``。每个GPU/TPU/MPS/NPU核心/CPU的训练批次的大小。
+    gradient_accumulation_steps (int): 默认值是：``8``。在执行反向传播及参数更新前，要累积的更新步骤数。
+    learning_rate (float): 默认值是：``1e-04``。AdamW的初始学习率。
+    num_train_epochs (float): 默认值是：``3.0``。要执行的总训练周期数。
+    lr_scheduler_type (typing.Union[transformers.trainer_utils.SchedulerType, str]): 默认值是：``cosine``。要使用的调度器类型。
+    warmup_ratio (float): 默认值是：``0.1``。在总步骤的 ``warmup_ratio`` 分之一阶段内进行线性预热。
+    fp16 (bool): 默认值是：``True``。是否使用fp16（混合）精度，而不是32位。
+    ddp_timeout (typing.Optional[int]): 默认值是：``180000000``。覆盖分布式训练的默认超时时间（值应以秒为单位给出）。
+    report_to (typing.Union[NoneType, str, typing.List[str]]): 默认值是：``tensorboard``。要将结果和日志报告到的集成列表。
+    val_size (float): 默认值是：``0.1``。验证集的大小，应该是整数或范围在`[0,1)`的浮点数。
+    per_device_eval_batch_size (int): 默认值是：``1``。每个GPU/TPU/MPS/NPU核心/CPU的验证集批次大小。
+    eval_strategy (typing.Union[transformers.trainer_utils.IntervalStrategy, str]): 默认值是：``steps``。要使用的验证评估策略。
+    eval_steps (typing.Optional[float]): 默认值是：``500``。每X个步骤运行一次验证评估。应该是整数或范围在`[0,1)`的浮点数。如果小于1，将被解释为总训练步骤的比例。
+
+
+Examples:
+    >>> from lazyllm import finetune
+    >>> trainer = finetune.llamafactory('internlm2-chat-7b', 'path/to/target')
+    <lazyllm.llm.finetune type=LlamafactoryFinetune>
+    """
     auto_map = {
         'gradient_step': 'gradient_accumulation_steps',
         'micro_batch_size': 'per_device_train_batch_size',
@@ -119,9 +176,6 @@ class LlamafactoryFinetune(LazyLLMFinetuneBase):
         return temp_yaml_file
 
     def _build_temp_dataset_info(self, datapaths, stage=None):  # noqa C901
-        '''
-        Build dataset_info.json based on training stage and dataset format.
-        '''
         if isinstance(datapaths, str):
             datapaths = [datapaths]
         elif isinstance(datapaths, list) and all(isinstance(item, str) for item in datapaths):
@@ -242,9 +296,6 @@ class LlamafactoryFinetune(LazyLLMFinetuneBase):
         return self.temp_dataset_info_path, ','.join(temp_dataset_dict.keys())
 
     def _build_alpaca_dataset_info(self, dataset_dict, file_name, first_item, stage):  # noqa C901
-        '''
-        Build dataset info for Alpaca format based on training stage.
-        '''
         columns = {}
         ranking = False
 
@@ -308,9 +359,6 @@ class LlamafactoryFinetune(LazyLLMFinetuneBase):
         dataset_dict[file_name].update(update_dict)
 
     def _build_sharegpt_dataset_info(self, dataset_dict, file_name, first_item, stage):  # noqa C901
-        '''
-        Build dataset info for ShareGPT format based on training stage.
-        '''
         columns = {}
         ranking = False
 
@@ -371,6 +419,25 @@ class LlamafactoryFinetune(LazyLLMFinetuneBase):
             self.temp_yaml_file = None
 
     def cmd(self, trainset, valset=None) -> str:
+        """生成LLaMA-Factory微调命令序列，包括训练和模型合并命令。
+
+Args:
+    trainset (str): 训练数据集路径(支持相对lazyllm.config['data_path']的路径)
+    valset (str, optional): 验证数据集路径(当前实现中未直接使用)
+
+**Returns:**
+
+- str: 完整的shell命令字符串，包含:
+    - 训练命令(自动配置参数)
+    - 日志重定向(保存到目标路径)
+    - 可选的模型合并命令(当配置LoRA时)
+
+注意事项:
+    - 自动生成带时间戳的训练日志文件
+    - 临时文件会在使用后自动清理
+    - 支持多种数据格式(alpaca/sharegpt等)
+    - 多模态数据(图像/视频/音频)会自动检测处理
+"""
         thirdparty.check_packages(['datasets', 'deepspeed', 'numpy', 'peft', 'torch', 'transformers', 'trl'])
         if 'dataset_dir' in self.template_dict and self.template_dict['dataset_dir'] == 'lazyllm_temp_dir':
             stage = self.template_dict.get('stage', 'sft')

@@ -22,6 +22,16 @@ def _apply_fill(df: pd.DataFrame, fill_method: Optional[str]) -> pd.DataFrame:
 
 
 class PandasCSVReader(LazyLLMReaderBase):
+    """用于读取 CSV 文件并使用 pandas 进行解析。
+
+Args:
+    concat_rows (bool): 是否将所有行拼接为一个文本块，默认为 True。
+    col_joiner (str): 列之间的连接符。
+    row_joiner (str): 行之间的连接符。
+    pandas_config (Optional[Dict]): pandas.read_csv 的可选配置项。
+    fill_method (Optional[str]): 缺失值填充策略，可选 'fillna'(默认) / 'ffill' / 'bfill'。
+    return_trace (bool): 是否返回处理过程的 trace。
+"""
     def __init__(self, concat_rows: bool = True, col_joiner: str = ', ', row_joiner: str = '\n',
                  pandas_config: Optional[Dict] = None, fill_method: Optional[str] = 'fillna',
                  return_trace: bool = True) -> None:
@@ -48,6 +58,15 @@ class PandasCSVReader(LazyLLMReaderBase):
         else: return [DocNode(text=text) for text in text_list]
 
 class PandasExcelReader(LazyLLMReaderBase):
+    """用于读取 Excel 文件（.xlsx），并将内容提取为文本。
+
+Args:
+    concat_rows (bool): 是否将所有行拼接为一个文本块。
+    sheet_name (Optional[str]): 要读取的工作表名称。若为 None，则读取所有工作表。
+    pandas_config (Optional[Dict]): pandas.read_excel 的可选配置项。
+    fill_method (Optional[str]): 缺失值填充策略，可选 'fillna'(default) / 'ffill' / 'bfill'。
+    return_trace (bool): 是否返回处理过程的 trace。
+"""
     def __init__(self, concat_rows: bool = True, sheet_name: Optional[str] = None,
                  pandas_config: Optional[Dict] = None, fill_method: Optional[str] = 'fillna',
                  return_trace: bool = True) -> None:

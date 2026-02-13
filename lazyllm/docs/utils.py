@@ -59,6 +59,7 @@ def _set_doc(obj, doc):
         _cpp_add_doc(obj, doc)
 
 def add_doc(obj_name, docstr, module, append=''):
+    """Add document for lazyllm functions"""
     _guard_register_once(obj_name, module, append)
 
     obj = module

@@ -11,6 +11,28 @@ lazyllm.config.add('default_embedding_engine', str, '', 'DEFAULT_EMBEDDING_ENGIN
                    description='The default embedding engine to use.')
 
 class Infinity(LazyLLMDeployBase):
+    """此类是 ``LazyLLMDeployBase`` 的子类，基于 [Infinity](https://github.com/michaelfeil/infinity) 框架提供的高性能文本嵌入、重排序和CLIP等能力。
+
+Args:
+    launcher (lazyllm.launcher): Infinity 的启动器，默认为 ``launchers.remote(ngpus=1)``。
+    kw: 关键字参数，用于更新默认的训练参数。请注意，除了以下列出的关键字参数外，这里不能传入额外的关键字参数。
+
+此类的关键字参数及其默认值如下：
+
+Keyword Args: 
+    launcher (Launcher, optional): 启动器配置，默认为remote(ngpus=1)。
+    model_type (str, optional): 模型类型，默认为'embed'。
+    log_path (str, optional): 日志文件路径，默认为None。
+    **kw: 额外的配置参数，包括host、port、batch-size等。
+
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm import deploy
+    >>> deploy.Infinity()
+    <lazyllm.llm.deploy type=Infinity>
+    """
     keys_name_handle = {
         'inputs': 'input',
     }
@@ -77,6 +99,11 @@ class Infinity(LazyLLMDeployBase):
         return LazyLLMCMD(cmd=impl, return_value=self.geturl, checkf=verify_fastapi_func)
 
     def geturl(self, job=None):
+        """获取Infinity服务的URL地址。根据部署模式和作业状态，返回对应的API访问URL地址。
+
+Args:
+    job (Optional[Any]): 作业对象，如果为None则使用当前实例的job属性。
+"""
         if job is None:
             job = self.job
         if lazyllm.config['mode'] == lazyllm.Mode.Display:
@@ -86,6 +113,13 @@ class Infinity(LazyLLMDeployBase):
 
     @staticmethod
     def extract_result(x, inputs):
+        """从Infinity API响应中提取结果数据。
+解析Infinity服务的JSON响应，根据返回的对象类型提取嵌入向量或重排序结果。
+
+Args:
+    x (str): API返回的JSON字符串响应。
+    inputs (Dict): 原始输入数据，用于确定返回结果的格式。
+"""
         try:
             res_object = json.loads(x)
         except Exception as e:

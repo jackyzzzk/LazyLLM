@@ -12,6 +12,19 @@ from typing import Optional
 supported_formats = ('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.wma')
 
 class SenseVoice(object):
+    """SenseVoice 类，封装了基于 FunASR 的语音转文本模型加载与调用逻辑。  
+支持懒加载、自动模型下载，输入可为字符串路径、URL 或包含音频的字典。  
+
+Args:
+    base_path (str): 模型路径或标识符，将通过 ModelManager 下载到本地。  
+    source (Optional[str]): 模型来源，若未指定则使用 ``lazyllm.config['model_source']``。  
+    init (bool): 是否在初始化时立即加载模型，默认为 ``False``。  
+
+Attributes:
+    base_path (str): 下载或解析后的模型路径。  
+    model (Optional[funasr.AutoModel]): FunASR 语音识别模型实例，初始化后可用。  
+    init_flag: 用于懒加载的标志，确保模型只加载一次。  
+"""
     def __init__(self, base_path, source=None, init=False):
         source = lazyllm.config['model_source'] if not source else source
         self.base_path = ModelManager(source).download(base_path) or ''
@@ -21,6 +34,17 @@ class SenseVoice(object):
             lazyllm.call_once(self.init_flag, self.load_stt)
 
     def load_stt(self):
+        """初始化并加载 FunASR 语音转文本模型，如果存在 `torch_npu` 则支持华为 NPU 加速。
+
+使用 `fsmn-vad` 进行语音活动检测（VAD），支持长语音段。
+单段语音最大持续时间为 30 秒。
+默认推理设备为 `cuda:0`（GPU）。
+
+加载的模型将保存在 `self.model` 中，用于后续音频转写。
+
+注意：
+- 如果当前环境中存在 `torch_npu`，函数会导入以支持昇腾 NPU 加速。
+"""
         if importlib.util.find_spec('torch_npu') is not None:
             import torch_npu  # noqa F401
             from torch_npu.contrib import transfer_to_npu  # noqa F401
@@ -65,6 +89,16 @@ class SenseVoice(object):
 
     @classmethod
     def rebuild(cls, base_path, init):
+        """类方法，用于在反序列化过程中重新构建 `SenseVoice` 实例（例如使用 `cloudpickle`）。  
+
+Args:
+    base_path (str): 语音识别模型路径。  
+    init (bool): 实例化时是否立即初始化并加载模型。
+
+**Returns:**
+
+- SenseVoice: 返回一个新的 `SenseVoice` 实例，用于支持序列化/多进程兼容。
+"""
         return cls(base_path, init=init)
 
     def __reduce__(self):
@@ -72,6 +106,34 @@ class SenseVoice(object):
         return SenseVoice.rebuild, (self.base_path, init)
 
 class SenseVoiceDeploy(LazyLLMDeployBase):
+    """SenseVoice 模型部署类。该类用于将SenseVoice模型部署到指定服务器上，以便可以通过网络进行调用。
+
+`__init__(self, launcher=None)`
+构造函数，初始化部署类。
+
+Args:
+    launcher (Optional[LazyLLMLaunchersBase]): Launcher instance, defaults to None.
+    log_path (Optional[str]): Log file path, defaults to None.
+    trust_remote_code (bool): Whether to trust remote code, defaults to True.
+    port (Optional[int]): Service port number, defaults to None.
+
+Notes:
+    - 推理的输入：字符串。音频路径或者链接。
+    - 推理的返回值：字符串。识别出的内容。
+    - 支持的模型为：[SenseVoiceSmall](https://huggingface.co/FunAudioLLM/SenseVoiceSmall)
+
+
+Examples:
+    >>> import os
+    >>> import lazyllm
+    >>> from lazyllm import launchers, UrlModule
+    >>> from lazyllm.components import SenseVoiceDeploy
+    >>> deployer = SenseVoiceDeploy(launchers.remote())
+    >>> url = deployer(base_model='SenseVoiceSmall')
+    >>> model = UrlModule(url=url)
+    >>> model('path/to/audio') # support format: .mp3, .wav
+    ... xxxxxxxxxxxxxxxx
+    """
     keys_name_handle = {
         'inputs': 'inputs',
         'audio': 'audio',

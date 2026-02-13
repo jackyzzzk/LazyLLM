@@ -53,6 +53,27 @@ the result is
 
 
 class SqlCall(ModuleBase):
+    """SqlCall 是一个扩展自 ModuleBase 的类,提供了使用语言模型(LLM)生成和执行 SQL 查询的接口。
+它设计用于与 SQL 数据库交互,从语言模型的响应中提取 SQL 查询,执行这些查询,并返回结果或解释。
+
+Args:
+    llm: 用于生成和解释 SQL 查询及解释的大语言模型。
+    sql_manager (DBManager): 数据库管理器实例，包含数据库连接和描述信息
+    sql_examples (str, optional): SQL示例字符串，用于提示工程。默认为空字符串
+    sql_post_func (Callable, optional): 对生成的SQL语句进行后处理的函数。默认为 ``None``
+    use_llm_for_sql_result (bool, optional): 是否使用LLM来解释SQL执行结果。默认为 ``True``
+    return_trace (bool, optional): 是否返回执行跟踪信息。默认为 ``False``
+
+
+Examples:
+        >>> # First, run SqlManager example
+        >>> import lazyllm
+        >>> from lazyllm.tools import SQLManger, SqlCall
+        >>> sql_tool = SQLManger("personal.db")
+        >>> sql_llm = lazyllm.OnlineChatModule(model="gpt-4o", source="openai", base_url="***")
+        >>> sql_call = SqlCall(sql_llm, sql_tool, use_llm_for_sql_result=True)
+        >>> print(sql_call("去年一整年销售额最多的员工是谁?"))
+    """
     EXAMPLE_TITLE = 'Here are some example: '
 
     def __init__(self, llm, sql_manager: DBManager, sql_examples: str = '', sql_post_func: Callable = None,
@@ -102,6 +123,18 @@ class SqlCall(ModuleBase):
         tools: Union[List[Dict[str, Any]], None] = None,
         label: Union[str, None] = None,
     ):
+        """为从用户输入生成数据库查询准备 prompt 的 hook。
+
+Args:
+    input (Union[str, List, Dict[str, str], None]): 用户的自然语言查询。
+    history (List[Union[List[str], Dict[str, Any]]]): 会话历史。
+    tools (Union[List[Dict[str, Any]], None]): 可用工具描述。
+    label (Union[str, None]): 可选标签。
+
+**Returns:**
+
+- Tuple: 包含格式化后的 prompt 字典（包括 current_date、db_type、desc、user_query）、history、tools 和 label。
+"""
         current_date = datetime.datetime.now().strftime('%Y-%m-%d')
         schema_desc = self._sql_tool.desc
         if self.example:
@@ -122,6 +155,18 @@ class SqlCall(ModuleBase):
         tools: Union[List[Dict[str, Any]], None] = None,
         label: Union[str, None] = None,
     ):
+        """为解释数据库查询执行结果准备 prompt 的 hook。
+
+Args:
+    input (Union[str, List, Dict[str, str], None]): 包含查询和结果的列表。
+    history (List[Union[List[str], Dict[str, Any]]]): 会话历史。
+    tools (Union[List[Dict[str, Any]], None]): 可用工具描述。
+    label (Union[str, None]): 可选标签。
+
+**Returns:**
+
+- Tuple: 包含格式化后的 prompt 字典（history_info、desc、query、result、explain_query）、history、tools 和 label。
+"""
         explain_query = 'Tell the user based on the execution results, making sure to keep the language consistent \
             with the user\'s input and don\'t translate original result.'
         if not isinstance(input, list) and len(input) != 2:
@@ -144,6 +189,15 @@ class SqlCall(ModuleBase):
         )
 
     def extract_sql_from_response(self, str_response: str) -> tuple[bool, str]:
+        """从原始 LLM 响应中提取 SQL（或 MongoDB pipeline）语句。
+
+Args:
+    str_response (str): LLM 返回的原始文本，可能包含代码块。
+
+**Returns:**
+
+- tuple[bool, str]: 第一个元素表示是否成功提取，第二个是清洗后的或原始内容。如果提供了 sql_post_func，则会应用于提取结果。
+"""
         # Remove the triple backticks if present
         matches = self._pattern.findall(str_response)
         if matches:
@@ -161,6 +215,20 @@ class SqlCall(ModuleBase):
     def create_from_document(cls, document: Document, llm=None, sql_examples: str = '',
                              sql_post_func: Callable = None, use_llm_for_sql_result=True,
                              return_trace: bool = False) -> 'SqlCall':
+        """基于已绑定 SchemaExtractor 的 Document 创建 SqlCall，复用其 NL2SQL SqlManager 和 LLM，可直接面向文档注册的 schema 生成/执行 SQL。
+
+Args:
+    document (Document): 具备 SchemaExtractor 的文档实例。
+    llm (optional): 覆盖用于 SQL 生成/结果说明的 LLM，默认复用文档的 LLM。
+    sql_examples (str, optional): 追加在 schema 描述后的 few-shot 示例，指导 SQL 生成。
+    sql_post_func (Callable, optional): 对提取的 SQL/管道做后处理的函数。
+    use_llm_for_sql_result (bool, optional): 是否用 LLM 解释查询结果，默认 True。
+    return_trace (bool, optional): 是否返回流水线 trace，默认 False。
+
+**Returns:**
+
+- SqlCall: 绑定到该 Document schema 表的 SqlCall 实例。
+"""
         if not document._schema_extractor:
             raise ValueError('Only document with schema extractor can be used to create SqlCall.')
         sql_manager = document._impl._schema_extractor.sql_manager_for_nl2sql(algo_id=document._curr_group)

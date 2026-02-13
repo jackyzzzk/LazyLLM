@@ -43,6 +43,34 @@ Each parameter has a name, type, description, and a 'require' flag.
 '''
 
 class ParameterExtractor(ModuleBase):
+    """参数提取模块。
+
+该模块根据参数名称、类型、描述和是否必填，从文本中提取结构化参数，底层依赖语言模型实现。
+
+`__init__(self, base_model, param, type, description, require)`
+使用参数定义和模型初始化参数提取器。
+
+Args:
+    base_model (Union[str, TrainableModule, OnlineChatModuleBase]): 用于参数提取的模型路径或模型实例。
+    param (list[str]): 需要提取的参数名称列表。
+    type (list[str]): 参数类型列表，如 "int"、"str"、"bool" 等。
+    description (list[str]): 每个参数的描述信息。
+    require (list[bool]): 每个参数是否为必填项的布尔列表。
+
+
+Examples:
+    >>> from lazyllm.components import ParameterExtractor
+    >>> extractor = ParameterExtractor(
+    ...     base_model="deepseek-chat",
+    ...     param=["name", "age"],
+    ...     type=["str", "int"],
+    ...     description=["The user's name", "The user's age"],
+    ...     require=[True, True]
+    ... )
+    >>> result = extractor("My name is Alice and I am 25 years old.")
+    >>> print(result)
+    ... ['Alice', 25]
+    """
     type_map = {
         int.__name__: int,
         str.__name__: str,
@@ -72,6 +100,21 @@ class ParameterExtractor(ModuleBase):
             self._m = base_model.share(self._prompt)
 
     def choose_prompt(self, prompt: str):
+        """
+根据参数描述内容选择合适的提示模板（Prompt）。
+
+此方法会检查传入的参数描述字符串中是否包含中文字符：
+
+- 如果包含中文字符，则返回中文提示模板 `ch_parameter_extractor_prompt`；
+- 如果不包含中文字符，则返回英文提示模板 `en_parameter_extractor_prompt`。
+
+Args:
+    prompt (str): 参数描述字符串，用于判断使用中文或英文提示模板。
+
+**Returns:**
+
+- str: 对应语言的提示模板（Prompt）。
+"""
         # Use chinese prompt if intent elements have chinese character, otherwise use english version
         for ele in prompt:
             # chinese unicode range
@@ -80,6 +123,13 @@ class ParameterExtractor(ModuleBase):
         return en_parameter_extractor_prompt
 
     def check_int_value(self, res: dict):
+        """检查并转换整数值。
+
+确保整型参数的值正确转换为int类型。
+
+Args:
+    res (dict): 包含参数值的字典
+"""
         for param_name in self._param_dict:
             if self._param_dict[param_name] == int.__name__ and param_name in res:
                 if not isinstance(res[param_name], int):

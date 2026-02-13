@@ -14,6 +14,21 @@ class PromptTemplate(BasePromptTemplate):
 
     @model_validator(mode='after')
     def validate_variables(self):
+        """验证模板变量的完整性。
+
+验证规则：
+1. partial_vars中的所有键必须存在于模板变量中
+2. required_vars和partial_vars的键必须完全等于所有模板变量
+
+Raises:
+    ValueError: 当变量验证失败时抛出，包括：
+        - partial_vars包含模板中不存在的变量
+        - required_vars和partial_vars有重叠变量
+        - required_vars和partial_vars的并集不等于所有模板变量
+
+Returns:
+    PromptTemplate: 验证后的实例自身
+"""
         # 1. All keys in partial_vars must exist in template variables
         # 2. required_vars + partial_vars keys must exactly equal all template variables
         # Extract all variables from template
@@ -46,6 +61,21 @@ class PromptTemplate(BasePromptTemplate):
         return self
 
     def format(self, **kwargs) -> str:
+        """格式化提示模板。
+
+使用提供的变量值替换模板中的占位符，支持部分变量的函数调用。
+
+Args:
+    **kwargs: 模板变量名和对应的值
+
+Returns:
+    str: 格式化后的提示字符串
+
+Raises:
+    KeyError: 当缺少必需变量或模板变量不存在时
+    TypeError: 当部分变量函数调用出错时
+    ValueError: 当模板格式化出错时
+"""
         # Check if all required variables are provided
         missing_vars = set(self.required_vars) - set(kwargs.keys())
         if missing_vars:
@@ -72,6 +102,19 @@ class PromptTemplate(BasePromptTemplate):
             raise ValueError(f'Error formatting template: {e}')
 
     def partial(self, **partial_kwargs) -> 'PromptTemplate':
+        """创建部分填充的模板副本。
+
+为指定的变量设置固定值，生成一个新的模板实例，这些变量将不再需要提供。
+
+Args:
+    **partial_kwargs: 要设置为部分变量的变量名和值
+
+Returns:
+    PromptTemplate: 新的部分填充模板实例
+
+Raises:
+    KeyError: 当指定的变量不存在于模板中时
+"""
         # Check if all partial variables exist in the template
         template_vars = set(BasePromptTemplate.get_template_variables(self.template))
         invalid_vars = set(partial_kwargs.keys()) - template_vars
@@ -94,6 +137,16 @@ class PromptTemplate(BasePromptTemplate):
 
     @classmethod
     def from_template(cls, template: str) -> 'PromptTemplate':
+        """从模板字符串创建PromptTemplate实例。
+
+类方法，根据模板字符串自动提取所有变量并设置为必需变量。
+
+Args:
+    template (str): 包含{variable}占位符的模板字符串
+
+Returns:
+    PromptTemplate: 新创建的PromptTemplate实例
+"""
         # Extract all variables from template
         all_vars = BasePromptTemplate.get_template_variables(template)
         return cls(

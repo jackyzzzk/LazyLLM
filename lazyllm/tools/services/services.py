@@ -4,6 +4,12 @@ import threading
 from lazyllm.thirdparty import fastapi
 
 class ServerBase(object):
+    """服务器基类，提供任务管理和状态监控的基础功能。
+
+实现多用户任务信息存储、状态轮询检查和线程安全的字典操作。
+
+
+"""
     def __init__(self):
         self._user_job_info = {'default': dict()}
         self._active_jobs = dict()
@@ -122,6 +128,19 @@ class ServerBase(object):
         self._polling_thread.start()
 
     async def authorize_current_user(self, Bearer: str = None):
+        """用户认证授权。
+
+验证用户令牌的有效性，确保只有授权用户可以访问相关资源。
+
+Args:
+    Bearer: Bearer令牌字符串
+
+Returns:
+    str: 验证通过的令牌
+
+Raises:
+    HTTPException: 令牌无效时抛出401异常
+"""
         if not self._in_user_job_info(Bearer):
             raise fastapi.HTTPException(status_code=401, detail='Invalid token')
         return Bearer

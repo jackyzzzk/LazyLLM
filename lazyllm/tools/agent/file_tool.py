@@ -31,20 +31,6 @@ def _check_root(path: str, root: Optional[str]) -> Optional[Dict[str, str]]:
 def read_file(path: str, start_line: Optional[int] = None, end_line: Optional[int] = None,
               encoding: str = 'utf-8', errors: str = 'replace', root: Optional[str] = None,
               max_chars: int = 200000) -> dict:
-    '''Read a text file with optional line range.
-
-    Args:
-        path (str): File path.
-        start_line (int, optional): 1-based start line (inclusive).
-        end_line (int, optional): 1-based end line (inclusive).
-        encoding (str, optional): File encoding. Defaults to utf-8.
-        errors (str, optional): Error handling for decoding. Defaults to replace.
-        root (str, optional): Restrict reads to this root directory.
-        max_chars (int, optional): Max chars to return. Defaults to 200000.
-
-    Returns:
-        dict: Content and metadata.
-    '''
     guard = _check_root(path, root)
     if guard:
         return guard
@@ -76,17 +62,6 @@ def read_file(path: str, start_line: Optional[int] = None, end_line: Optional[in
 @register('tool')
 def list_dir(path: str = '.', recursive: bool = False, max_depth: int = 5,
              root: Optional[str] = None) -> dict:
-    '''List directory entries.
-
-    Args:
-        path (str, optional): Directory path. Defaults to current directory.
-        recursive (bool, optional): Whether to walk recursively.
-        max_depth (int, optional): Max recursion depth. Defaults to 5.
-        root (str, optional): Restrict listing to this root directory.
-
-    Returns:
-        dict: List of entries.
-    '''
     guard = _check_root(path, root)
     if guard:
         return guard
@@ -119,21 +94,6 @@ def search_in_files(pattern: str, path: str = '.', glob: Optional[str] = None,
                     max_results: int = 50, root: Optional[str] = None,
                     encoding: str = 'utf-8', errors: str = 'replace',
                     max_file_size: int = 2_000_000) -> dict:
-    '''Search files for a regex pattern.
-
-    Args:
-        pattern (str): Regex pattern to search for.
-        path (str, optional): Root path to search. Defaults to current directory.
-        glob (str, optional): Filename glob filter (e.g., "*.py").
-        max_results (int, optional): Max number of matches to return.
-        root (str, optional): Restrict search to this root directory.
-        encoding (str, optional): File encoding. Defaults to utf-8.
-        errors (str, optional): Error handling for decoding. Defaults to replace.
-        max_file_size (int, optional): Skip files larger than this size in bytes.
-
-    Returns:
-        dict: List of matches with file path and line number.
-    '''
     guard = _check_root(path, root)
     if guard:
         return guard
@@ -169,17 +129,6 @@ def search_in_files(pattern: str, path: str = '.', glob: Optional[str] = None,
 @register('tool')
 def make_dir(path: str, parents: bool = True, exist_ok: bool = True,
              root: Optional[str] = None) -> dict:
-    '''Create a directory.
-
-    Args:
-        path (str): Directory path to create.
-        parents (bool, optional): Create parent directories. Defaults to True.
-        exist_ok (bool, optional): Ignore if already exists. Defaults to True.
-        root (str, optional): Restrict to this root directory.
-
-    Returns:
-        dict: Status result.
-    '''
     guard = _check_root(path, root)
     if guard:
         return guard
@@ -193,20 +142,6 @@ def make_dir(path: str, parents: bool = True, exist_ok: bool = True,
 def write_file(path: str, content: str, mode: str = 'overwrite', encoding: str = 'utf-8',
                root: Optional[str] = None, create_parents: bool = True,
                allow_unsafe: bool = False) -> dict:
-    '''Write content to a file.
-
-    Args:
-        path (str): File path.
-        content (str): Content to write.
-        mode (str, optional): overwrite|append. Defaults to overwrite.
-        encoding (str, optional): File encoding. Defaults to utf-8.
-        root (str, optional): Restrict writes to this root directory.
-        create_parents (bool, optional): Create parent directories if needed.
-        allow_unsafe (bool, optional): Allow overwriting existing files. Defaults to False.
-
-    Returns:
-        dict: Status result.
-    '''
     guard = _check_root(path, root)
     if guard:
         return guard
@@ -233,15 +168,6 @@ def write_file(path: str, content: str, mode: str = 'overwrite', encoding: str =
 @register('builtin_tools')
 @register('tool')
 def delete_file(path: str, root: Optional[str] = None, allow_unsafe: bool = False) -> dict:
-    '''Delete a file.
-
-    Args:
-        path (str): File path.
-        root (str, optional): Restrict deletion to this root directory.
-        allow_unsafe (bool, optional): Allow deletion. Defaults to False.
-    Returns:
-        dict: Status result.
-    '''
     guard = _check_root(path, root)
     if guard:
         return guard
@@ -262,19 +188,6 @@ def delete_file(path: str, root: Optional[str] = None, allow_unsafe: bool = Fals
 @register('tool')
 def move_file(src: str, dst: str, root: Optional[str] = None, allow_unsafe: bool = False,
               overwrite: bool = False, create_parents: bool = True) -> dict:
-    '''Move or rename a file.
-
-    Args:
-        src (str): Source path.
-        dst (str): Destination path.
-        root (str, optional): Restrict operations to this root directory.
-        allow_unsafe (bool, optional): Allow move/rename. Defaults to False.
-        overwrite (bool, optional): Allow overwrite at destination. Defaults to False.
-        create_parents (bool, optional): Create destination parents if needed.
-
-    Returns:
-        dict: Status result.
-    '''
     guard = _check_root(src, root) or _check_root(dst, root)
     if guard:
         return guard

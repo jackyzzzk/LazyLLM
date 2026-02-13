@@ -40,18 +40,6 @@ def _detect_dangerous_command(cmd: str) -> Optional[str]:
 @register('tool')
 def shell_tool(cmd: str, cwd: Optional[str] = None, timeout: int = 30,
                env: Optional[Dict[str, str]] = None, allow_unsafe: bool = False) -> dict:
-    '''Run a shell command and return stdout/stderr/exit code.
-
-    Args:
-        cmd (str): The shell command to execute.
-        cwd (str, optional): Working directory for the command.
-        timeout (int, optional): Timeout in seconds. Defaults to 30.
-        env (dict, optional): Environment variables to pass to the process.
-        allow_unsafe (bool, optional): Allow potentially dangerous commands. Defaults to False.
-
-    Returns:
-        dict: Execution result including stdout, stderr, exit_code, and cwd.
-    '''
     cmd = cmd.strip()
     if not cmd:
         raise ValueError('cmd cannot be empty.')

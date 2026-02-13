@@ -7,6 +7,28 @@ from lazyllm.components.formatter import JsonFormatter
 
 
 class JsonExtractor(ModuleBase):
+    """
+JSON提取器，用于从文本中提取JSON数据。
+
+Args:
+    base_model (LLMBase): 语言模型
+    schema (Union[str, Dict[str, Any]]): JSON结构，可以是JSON字符串或字典。示例：'{"name": "", "age": 0, "city": ""}' 或 {"name": "", "age": 0, "city": ""}
+    field_descriptions (Union[str, Dict[str, str]], optional): 字段描述，可以是字符串或字典。如果字典，键是字段名称，值是字段描述。示例：{"name": "姓名", "age": "年龄", "city": "城市"}
+
+Returns:
+    Union[Dict[str, Any], List[Dict[str, Any]]]: 提取的JSON数据，如果有多个，则返回列表。如果提取失败则返回空字典。
+
+
+Examples:
+
+    >>> from lazyllm.tools.tools import JsonExtractor
+    >>> from lazyllm import OnlineChatModule
+    >>> llm = lazyllm.OnlineChatModule()
+    >>> extractor = JsonExtractor(llm, schema='{"name": "", "age": 0, "city": ""}', field_descriptions={'name': '姓名', 'age': '年龄', 'city': '城市'})
+    >>> res = extractor("张三的年龄是20岁，住在北京; 李四的年龄是25岁，住在上海")
+    >>> print(res)
+    [{'name': '张三', 'age': 20, 'city': '北京'}, {'name': '李四', 'age': 25, 'city': '上海'}]
+    """
     _prompt = '''
 You are an intelligent assistant. Your task is to extract \
 information from the user's input text and convert it into the specified JSON format.
@@ -75,6 +97,24 @@ User input text:
 
 
 class JsonConcentrator(ModuleBase):
+    """
+JSON聚合器，用于将多个JSON数据聚合成一个JSON数据。
+
+Args:
+    base_model (LLMBase): 语言模型
+    schema (Union[str, Dict[str, Any]]): JSON结构，可以是JSON字符串或字典。示例：'{"name": "", "age": 0, "city": ""}' 或 {"name": "", "age": 0, "city": ""}
+
+
+Examples:
+
+    >>> from lazyllm.tools.tools import JsonConcentrator
+    >>> from lazyllm import OnlineChatModule
+    >>> llm = lazyllm.OnlineChatModule()
+    >>> concentrator = JsonConcentrator(llm, schema='{"name": "", "age": 0, "city": ""}')
+    >>> res = concentrator([{'name': '张三', 'age': 20, 'city': '北京'}, {'name': '李四', 'age': 25, 'city': '上海'}])
+    >>> print(res)
+    {'name': '张三,李四', 'age': 20 - 25, 'city': '北京,上海'}
+    """
     class Mode(str, Enum):
         REDUCE = 'reduce'
         DISTINCT = 'distinct'
@@ -154,7 +194,6 @@ Output only "true" or "false" (without quotes), nothing else.
             self._distinct_roi = None
 
     def _validate_schema(self, data: Dict[str, Any]) -> bool:
-        '''Validate if the data conforms to the schema specification, missing key is allowed.'''
         if self._schema is None:
             return True
         return self._validate_schema_impl(self._schema, data)

@@ -34,7 +34,55 @@ ONE_DOC_LENGTH_LIMIT = 102400
 
 
 class SchemaExtractor:
-    '''Schema aware extractor that materializes BaseModel schemas into database tables.'''
+    """
+基于大模型的结构化信息抽取器：注册 Pydantic schema 后，自动创建/复用数据库表，并将文档内容按字段定义抽取、存储。
+可直接用于Document中，文档入库过程中自动生效。
+
+Args:
+    db_config (Dict[str, Any]): 目标数据库配置，用于初始化 SqlManager 及建表。
+    llm (Union[OnlineChatModule, TrainableModule]): 执行文本抽取的大语言模型。
+    table_prefix (str, optional): 自动建表时使用的表名前缀，默认 `lazyllm_schema`。
+    force_refresh (bool, optional): 是否强制刷新已有表/缓存。
+    extraction_mode (ExtractionMode, optional): 抽取模式，默认为 TEXT，当前仅支持纯文本提取。
+    max_len (int, optional): 单文档最大解析长度，默认 102400。
+    num_workers (int, optional): 抽取并发线程数，默认 4。
+
+
+Examples:
+    from lazyllm.tools.rag import SchemaExtractor
+    from lazyllm import OnlineChatModule
+    from pydantic import BaseModel, Field
+    db_config = {
+        "db_type": "sqlite",
+        "user": None,
+        "password": None,
+        "host": None,
+        "port": None,
+        "db_name": "./test.db",
+    }
+    # define a custom pydantic model
+    class TestSchema(BaseModel):
+        company: str = Field(description="Name of the company", default='unknown')
+        profit: float = Field(description="Profit of the company, unit is million", default=0.0)
+
+    extractor = SchemaExtractor(db_config=db_config, llm=OnlineChatModule(source='siliconflow'), force_refresh=True)
+    # register to db
+    extractor.register_schema_set_to_kb(schema_set=TestSchema)
+    text = "The company name is Apple, and the profit is 100 million."
+    # you can use it directly by giving a string
+    res = extractor(data=text)
+
+    # bind the schema for a specific algorithm(Document)
+    extractor.register_schema_set_to_kb(algo_id='algo_1', schema_set=TestSchema)
+    document = Document(
+        dataset_path='./test_docs',
+        name="algo_1",
+        display_name="Algo_1",
+        description="Algo_1 for testing",
+        schema_extractor=extractor,  # give it the extractor by this way
+    )
+
+    """
 
     TABLE_PREFIX = 'lazyllm_schema'
     SYS_KB_ID = 'kb_id'
@@ -88,6 +136,17 @@ class SchemaExtractor:
 
     def sql_manager_for_nl2sql(self, algo_id: str = None,  # noqa: C901
                                kb_ids: Union[str, List[str]] = None) -> SqlManager:
+        """
+基于已绑定的 schema，生成一个仅暴露相关表的 SqlManager，用于 SqlCall 模块中 NL2SQL 查询；会附带表结构描述和可见表列表。
+
+Args:
+    algo_id (str, optional): 算法/Document 名称；不传则返回所有绑定关系的可见表。
+    kb_ids (Union[str, List[str]], optional): 过滤的知识库 ID，可单个或列表。
+
+**Returns:**
+
+- SqlManager: 仅包含可见表、列信息及说明的 SqlManager 实例，用于 NL2SQL。
+"""
         self._lazy_init()
         if not self._sql_manager:
             raise ValueError('SqlManager is not initialized')
@@ -185,7 +244,18 @@ class SchemaExtractor:
 
     def register_schema_set(self, schema_set: Type[BaseModel], schema_set_id: str = None,   # noqa: C901
                             force_refresh: bool = False) -> str:
-        '''schema set registration, idempotent'''
+        """
+注册 Pydantic schema 集合，必要时创建管理/目标表，返回 schema_set_id（幂等）。
+
+Args:
+    schema_set (Type[BaseModel]): 要注册的 Pydantic 模型。
+    schema_set_id (str, optional): 自定义 schema 集合 ID，不传则自动生成或复用已有签名。
+    force_refresh (bool, optional): 预留参数，期望强制刷新表或缓存时使用。
+
+**Returns:**
+
+- str: 注册后的 schema_set_id。
+"""
         try:
             self._lazy_init()
             self._validate_schema_model(schema_set)
@@ -251,7 +321,6 @@ class SchemaExtractor:
             raise e
 
     def _model_from_schema_json(self, schema_json: str, model_name: str = 'RecoveredSchema') -> Type[BaseModel]:
-        '''Reconstruct a minimal BaseModel subclass from stored JSON schema.'''
         try:
             schema_dict = json.loads(schema_json)
         except Exception as exc:
@@ -276,6 +345,16 @@ class SchemaExtractor:
         return create_model(model_name, **fields_def)  # type: ignore[arg-type]
 
     def has_schema_set(self, schema_set_id: str) -> bool:
+        """
+检查指定 schema_set_id 是否已注册，缺失时会尝试从数据库恢复模型并建表。
+
+Args:
+    schema_set_id (str): 目标 schema 集合 ID。
+
+**Returns:**
+
+- bool: 是否已存在。
+"""
         self._lazy_init()
         if self._sql_manager:
             table_cls = self._sql_manager.get_table_orm_class(TABLE_SCHEMA_SET_INFO['name'])
@@ -296,11 +375,20 @@ class SchemaExtractor:
     def register_schema_set_to_kb(self, algo_id: Optional[str] = DocListManager.DEFAULT_GROUP_NAME,
                                   kb_id: Optional[str] = DEFAULT_KB_ID, schema_set_id: Optional[str] = None,
                                   schema_set: Type[BaseModel] = None, force_refresh: bool = False) -> str:
-        '''
-        Bind a KB to a schema set.
+        """
+将算法/知识库绑定到指定 schema 集合；若提供 schema_set 会先注册；可选 force_refresh 覆盖已有绑定并清理旧数据。
 
-        This is used to ensure that the KB is compatible with the schema set.
-        '''
+Args:
+    algo_id (str, optional): 算法/Document 名称，默认 DocListManager.DEFAULT_GROUP_NAME。
+    kb_id (str, optional): 知识库 ID，默认 DEFAULT_KB_ID。
+    schema_set_id (str, optional): 已有 schema 集合 ID。
+    schema_set (Type[BaseModel], optional): 新 schema，传入则会注册后绑定。
+    force_refresh (bool, optional): 已绑定不同 schema 时是否强制覆盖并清空旧记录。
+
+**Returns:**
+
+- str: 绑定使用的 schema_set_id。
+"""
         try:
             self._lazy_init()
             force_refresh = force_refresh or self._force_refresh
@@ -346,7 +434,6 @@ class SchemaExtractor:
             raise e
 
     def _get_schema_set_str(self, schema_set) -> str:
-        '''Return a human readable schema description: name, description, data type.'''
         model = None
         if isinstance(schema_set, str):
             model = self._schema_registry.get(schema_set)
@@ -377,7 +464,17 @@ class SchemaExtractor:
 
     def analyze_schema_and_register(self, data: Union[str, List[DocNode]],
                                     schema_set_id: Optional[str] = None) -> SchemaSetInfo:
-        '''Infer a schema from sample data, register it, and return the registration info.'''
+        """
+基于样本文本/DocNode 列表调用大模型推断字段结构，自动生成 Pydantic 模型并注册，返回 SchemaSetInfo（含 schema_set_id 和 pydantic model）。
+
+Args:
+    data (Union[str, List[DocNode]]): 用于分析的文本或节点列表（单文档）。
+    schema_set_id (str, optional): 自定义/复用的 schema_set_id。
+
+**Returns:**
+
+- SchemaSetInfo: 包含 schema_set_id 与生成的 schema 模型。
+"""
         self._lazy_init()
         if not self._llm:
             raise ValueError('LLM not initialized')
@@ -415,7 +512,6 @@ class SchemaExtractor:
         return SchemaSetInfo(schema_set_id=reg_id, schema_model=schema_model)
 
     def _gen_text_list_from_nodes(self, nodes: List[DocNode]) -> list[str]:
-        '''Generate full text blocks with metadata, each capped by `self._max_len`.'''
         if not nodes:
             return []
         template = 'File Info:\n{file_metas}\nFile Content:\n{file_content}\n\n'
@@ -557,7 +653,19 @@ class SchemaExtractor:
     def extract_and_store(self, data: Union[str, List[DocNode]],  # noqa: C901
                           algo_id: str = DocListManager.DEFAULT_GROUP_NAME,
                           schema_set_id: str = None, schema_set: Type[BaseModel] = None) -> ExtractResult:
-        '''Persist extracted fields for a document'''
+        """
+按绑定的 schema 抽取文本/DocNode 内容并写入对应表，若传入 schema_set 会先注册；同文档重复调用会返回缓存结果。
+
+Args:
+    data (Union[str, List[DocNode]]): 文本或 DocNode 列表（需同一文档）。
+    algo_id (str, optional): 算法/Document 名称，默认 DocListManager.DEFAULT_GROUP_NAME。
+    schema_set_id (str, optional): 指定使用的 schema 集合 ID。
+    schema_set (Type[BaseModel], optional): 动态注册并使用的 schema。
+
+**Returns:**
+
+- ExtractResult: 抽取结果，`data` 为字段名到值的字典，`metadata` 包含 schema_set_id、algo_id、kb_id、doc_id 及按字段的线索信息；可能为 None 表示无可写入。
+"""
         self._lazy_init()
         if schema_set is not None:
             schema_set_id = self.register_schema_set(schema_set, schema_set_id)
@@ -620,7 +728,6 @@ class SchemaExtractor:
         return res_item
 
     def _delete_extract_data(self, algo_id: str, doc_ids: List[str], kb_id: str = None) -> bool:
-        '''Delete extracted data for docs.'''
         try:
             self._lazy_init()
             if not self._sql_manager:
@@ -659,7 +766,6 @@ class SchemaExtractor:
 
     def _get_extract_data(self, algo_id: str, doc_ids: List[str],  # noqa: C901
                           kb_id: str = None) -> List[ExtractResult]:
-        '''Batch fetch extracted data.'''
         self._lazy_init()
         if not self._sql_manager:
             raise ValueError('SqlManager is not initialized')
@@ -726,6 +832,17 @@ class SchemaExtractor:
 
     def __call__(self, data: Union[str, List[DocNode]],
                  algo_id: str = DocListManager.DEFAULT_GROUP_NAME) -> ExtractResult:
+        """
+便捷调用，等同于 extract_and_store(data, algo_id)，抽取并存储后返回结果。
+
+Args:
+    data (Union[str, List[DocNode]]): 文本或 DocNode 列表。
+    algo_id (str, optional): 算法/Document 名称。
+
+**Returns:**
+
+- ExtractResult: 抽取结果。
+"""
         # NOTE: data should be from single file source (kb_id, doc_id should be the same)
         self._lazy_init()
         res = self.extract_and_store(data=data, algo_id=algo_id)
@@ -739,7 +856,6 @@ class SchemaExtractor:
         return f'{self._table_prefix}_{schema_set_id}'
 
     def _ensure_management_tables(self) -> None:
-        '''Ensure internal schema management tables exist.'''
         tables_info_dict = {'tables': [TABLE_SCHEMA_SET_INFO, Table_ALGO_KB_SCHEMA]}
         try:
             self._sql_manager._init_tables_by_info(tables_info_dict)
@@ -845,7 +961,6 @@ class SchemaExtractor:
             raise TypeError('schema_set must be a pydantic BaseModel subclass')
 
     def _json_safe(self, obj: Any) -> Any:
-        '''Convert common objects (Enum/BaseModel) to JSON-serializable primitives.'''
         if isinstance(obj, Enum):
             return obj.value
         if isinstance(obj, BaseModel):

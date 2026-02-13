@@ -26,6 +26,15 @@ def _sounds_to_files(sounds: list, directory: str, sample_rate: int = 24000) -> 
     return path_list
 
 class TTSBase(LazyLLMDeployBase):
+    """TTS（文本转语音）服务的基类。
+
+提供文本转语音服务的部署基础框架，支持模型加载和RelayServer部署。
+
+Args:
+    launcher (LazyLLMLaunchersBase, optional): 任务启动器
+    log_path (str, optional): 日志文件路径
+    port (int, optional): 服务端口号
+"""
     func = None
 
     def __init__(self, launcher: LazyLLMLaunchersBase = None,

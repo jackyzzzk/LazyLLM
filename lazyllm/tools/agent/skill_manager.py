@@ -72,6 +72,14 @@ _META_REQUIRED_FIELDS = {
 
 
 class SkillManager(ModuleBase):
+    """SkillManager 用于发现、加载与管理 Skills。
+
+Args:
+    dir (str, optional): Skills 目录路径，支持逗号分隔的多个路径。
+    skills (Iterable[str], optional): 期望使用的技能名称列表。
+    max_skill_md_bytes (int, optional): 单个 SKILL.md 最大读取大小。
+    llm: 预留参数，目前不强制使用。
+"""
     def __init__(self, dir: Optional[str] = None, skills: Optional[Iterable[str]] = None,
                  max_skill_md_bytes: Optional[int] = None):
         super().__init__(return_trace=False)
@@ -201,6 +209,12 @@ class SkillManager(ModuleBase):
             ]
 
     def list_skill(self) -> str:
+        """列出当前 skills 目录中的可用技能，返回 Markdown 字符串。
+
+**Returns:**
+
+- str: 技能列表（名称/描述/路径）。
+"""
         self._load_skills_index()
         lines = ['# Skills']
         if self._skills_dir:
@@ -232,6 +246,15 @@ class SkillManager(ModuleBase):
         return '\n'.join(lines)
 
     def build_prompt(self, task: str) -> str:
+        """根据任务构建 Skills 引导提示词。
+
+Args:
+    task (str): 当前任务文本。
+
+**Returns:**
+
+- str: 拼接后的系统提示词。
+"""
         self._load_skills_index()
         selected = self._selector(task)
         if not selected:
@@ -250,6 +273,16 @@ class SkillManager(ModuleBase):
         return self.build_prompt(task)
 
     def wrap_input(self, input, task: str):
+        """将输入包装为包含 `available_skills` 的模型输入结构。
+
+Args:
+    input: 原始输入（通常为 str 或 dict）。
+    task (str): 当前任务文本，用于生成可用技能列表。
+
+**Returns:**
+
+- Any: 包装后的输入。若输入为 str/dict 且存在可用技能，返回包含 `available_skills` 的 dict；否则返回原值。
+"""
         available = self._available_skills_text(task)
         if not available:
             return input
@@ -289,12 +322,16 @@ class SkillManager(ModuleBase):
         return list(candidates)
 
     def get_skill(self, name: str, allow_large: bool = False) -> Dict[str, str]:
-        '''Get full skill usage from SKILL.md.
+        """读取指定技能的 SKILL.md 全量内容。
 
-        Args:
-            name (str): Skill name.
-            allow_large (bool, optional): Allow loading large SKILL.md. Defaults to False.
-        '''
+Args:
+    name (str): 技能名称。
+    allow_large (bool): 是否允许读取超过大小限制的文件。
+
+**Returns:**
+
+- dict: 包含状态、路径与内容的结果。
+"""
         self._load_skills_index()
         info = self._skills_index.get(name)
         if not info:
@@ -313,12 +350,16 @@ class SkillManager(ModuleBase):
             return {'status': 'ok', 'name': name, 'path': skill_md, 'content': f.read()}
 
     def read_file(self, name: str, rel_path: str, **kwargs) -> Dict[str, str]:
-        '''Read a file inside a skill directory.
+        """读取技能目录下指定相对路径文件内容。
 
-        Args:
-            name (str): Skill name.
-            rel_path (str): Relative file path inside the skill directory.
-        '''
+Args:
+    name (str): 技能名称。
+    rel_path (str): 相对路径。
+
+**Returns:**
+
+- dict: 读取结果。
+"""
         self._load_skills_index()
         info = self._skills_index.get(name)
         if not info:
@@ -329,15 +370,19 @@ class SkillManager(ModuleBase):
 
     def run_script(self, name: str, rel_path: str, args: Optional[List[str]] = None,
                    allow_unsafe: bool = False, cwd: Optional[str] = None) -> Dict[str, str]:
-        '''Run a script inside a skill directory.
+        """执行技能目录下的脚本文件。
 
-        Args:
-            name (str): Skill name.
-            rel_path (str): Relative script path inside the skill directory.
-            args (list[str], optional): Script arguments.
-            allow_unsafe (bool, optional): Allow execution. Defaults to False.
-            cwd (str, optional): Working directory.
-        '''
+Args:
+    name (str): 技能名称。
+    rel_path (str): 脚本相对路径。
+    args (List[str], optional): 脚本参数。
+    allow_unsafe (bool): 是否允许执行潜在风险脚本。
+    cwd (str, optional): 工作目录。
+
+**Returns:**
+
+- dict: 执行结果。
+"""
         self._load_skills_index()
         info = self._skills_index.get(name)
         if not info:
@@ -359,10 +404,25 @@ class SkillManager(ModuleBase):
         return _shell_tool(cmd_str, cwd=cwd or base, allow_unsafe=allow_unsafe)
 
     def read_reference(self, name: str, rel_path: str, **kwargs) -> Dict[str, str]:
-        '''Read a reference file within a skill directory.'''
+        """读取技能参考文件内容（别名封装）。
+
+Args:
+    name (str): 技能名称。
+    rel_path (str): 相对路径。
+
+**Returns:**
+
+- dict: 读取结果。
+"""
         return self.read_file(name=name, rel_path=rel_path, **kwargs)
 
     def get_skill_tools(self) -> List:
+        """返回 Skills 工具列表（可调用对象）。
+
+**Returns:**
+
+- List[Callable]: Skills 工具列表。
+"""
         return [
             self._build_get_skill_tool(),
             self._build_read_reference_tool(),
@@ -371,38 +431,50 @@ class SkillManager(ModuleBase):
 
     def _build_get_skill_tool(self):
         def get_skill(name: str, allow_large: bool = False) -> dict:
-            '''Get the full usage for a skill (SKILL.md).
+            """读取指定技能的 SKILL.md 全量内容。
 
-            Args:
-                name (str): Skill name.
-                allow_large (bool, optional): Allow loading large SKILL.md. Defaults to False.
-            '''
+Args:
+    name (str): 技能名称。
+    allow_large (bool): 是否允许读取超过大小限制的文件。
+
+**Returns:**
+
+- dict: 包含状态、路径与内容的结果。
+"""
             return self.get_skill(name=name, allow_large=allow_large)
         return get_skill
 
     def _build_read_reference_tool(self):
         def read_reference(name: str, rel_path: str, **kwargs) -> dict:
-            '''Read a reference file within a skill directory.
+            """读取技能参考文件内容（别名封装）。
 
-            Args:
-                name (str): Skill name.
-                rel_path (str): Relative file path inside the skill directory.
-            '''
+Args:
+    name (str): 技能名称。
+    rel_path (str): 相对路径。
+
+**Returns:**
+
+- dict: 读取结果。
+"""
             return self.read_reference(name=name, rel_path=rel_path, **kwargs)
         return read_reference
 
     def _build_run_script_tool(self):
         def run_script(name: str, rel_path: str, args: Optional[List[str]] = None,
                        allow_unsafe: bool = False, cwd: Optional[str] = None) -> dict:
-            '''Run a script within a skill directory.
+            """执行技能目录下的脚本文件。
 
-            Args:
-                name (str): Skill name.
-                rel_path (str): Relative script path inside the skill directory.
-                args (list[str], optional): Script arguments.
-                allow_unsafe (bool, optional): Allow execution. Defaults to False.
-                cwd (str, optional): Working directory.
-            '''
+Args:
+    name (str): 技能名称。
+    rel_path (str): 脚本相对路径。
+    args (List[str], optional): 脚本参数。
+    allow_unsafe (bool): 是否允许执行潜在风险脚本。
+    cwd (str, optional): 工作目录。
+
+**Returns:**
+
+- dict: 执行结果。
+"""
             return self.run_script(name=name, rel_path=rel_path, args=args,
                                    allow_unsafe=allow_unsafe, cwd=cwd)
         return run_script

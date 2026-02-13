@@ -9,6 +9,41 @@ from .readerBase import _RichReader
 
 
 class MineruPDFReader(_RichReader):
+    """基于Mineru服务的PDF解析器，通过调用Mineru服务的API来解析PDF文件，支持丰富的文档结构识别。
+
+Args:
+    url (str): Mineru服务的完整API端点URL。
+    backend (str, optional): 解析引擎类型。可选值：
+        - 'pipeline': 标准处理流水线
+        - 'vlm-transformers': 基于Transformers的视觉语言模型
+        - 'vlm-vllm-async-engine': 基于异步VLLM的视觉语言模型
+        默认为 'pipeline'。
+    upload_mode (bool, optional): 文件传输模式。
+        - True: 使用multipart/form-data上传文件内容
+        - False: 通过文件路径传递（需确保服务端可访问该路径）
+        默认为 False。
+    extract_table (bool, optional): 是否提取表格内容并转换为Markdown格式。默认为 True。
+    extract_formula (bool, optional): 是否提取公式文本。
+        - True: 提取为LaTeX等文本格式
+        - False: 将公式保留为图片
+        默认为 True。
+    split_doc (bool, optional): 若为 True（默认），则解析为一个 `RichDocNode`，可以搭配 `RichTransform` 解析出带有结构信息的节点；
+        若为 False，则解析为一个纯文本的 `DocNode`。
+    clean_content (bool, optional): 是否清理冗余内容（页眉、页脚、页码等）。默认为 True。
+    post_func (Optional[Callable[[List[DocNode]], Any]], optional): 后处理函数，
+        接收DocNode列表作为参数，用于自定义结果处理。默认为 None。
+
+Notes:
+    当 `split_doc=True` 时返回 `RichDocNode`，否则返回 `DocNode`，两种情况都只返回一个节点。
+    当 `split_doc=True` 时，强烈建议搭配 `RichTransform` 使用，可以解析出带有结构信息等 metadata 的节点；
+    如不使用 `RichTransform`，则解析出的节点会回退为纯文本节点。
+
+
+Examples:
+    from lazyllm.tools.rag.readers import MineruPDFReader
+    reader = MineruPDFReader("http://0.0.0.0:8888")  # Mineru server address
+    nodes = reader("path/to/pdf")
+    """
     def __init__(self, url, backend='hybrid-auto-engine',
                  callback: Optional[Callable[[List[dict], Path, dict], List[DocNode]]] = None,
                  upload_mode: bool = False,
@@ -43,6 +78,13 @@ class MineruPDFReader(_RichReader):
         }
 
     def set_type_processor(self, content_type: str, processor: Callable[[Dict], Optional[Dict]]):
+        """为特定的内容类型设置自定义处理器函数，用于处理从 Mineru 服务返回的原始内容数据。
+返回结果中 'text' 键值将作为 DocNode 的文本内容，其他键值对将作为 DocNode 的元数据（metadata）存储。
+
+Args:
+    content_type (str): 内容类型，例如 'text', 'image', 'table', 'equation', 'code', 'list' 等。
+    processor (Callable): 处理器函数，接收内容字典作为参数，返回处理后的字典。
+"""
         self._type_processors[content_type] = processor
 
     def _load_data(self, file: Path, extra_info: Optional[Dict] = None,

@@ -55,6 +55,15 @@ class _ClientPool:
 
 
 class MilvusStore(LazyLLMStoreBase):
+    """
+基于 Milvus 的向量存储实现，继承自 StoreBase。支持向量写入、删除、相似度检索，兼容标量过滤。
+
+Args:
+    uri (str): Milvus 连接 URI（如 "tcp://localhost:19530"）。如果为本地路径则使用milvus-lite，否则为远程模式（需要独立部署milvus服务，例如standalone/distributed版本）。
+    db_name (str): Milvus 中使用的数据库名称，默认为 "lazyllm"。
+    index_kwargs (Optional[Union[Dict, List]]): 索引创建参数（例如 {"index_type": "IVF_FLAT", "metric_type": "CONSINE"} ，支持按向量模型的key配置列表）。
+    client_kwargs (Optional[Dict]): 传递给 milvus 客户端的额外参数。
+"""
     capability = StoreCapability.VECTOR
     need_embedding = True
     supports_index_registration = False
@@ -75,6 +84,13 @@ class MilvusStore(LazyLLMStoreBase):
 
     @property
     def dir(self):
+        """
+存储目录属性，基于 URI 推断。远程模式返回 None。
+
+**Returns:**
+
+- Optional[str]: 本地 milvus.db 文件的目录路径，或 None。
+"""
         if self._is_remote: return None
         p = Path(self._uri)
         p = p if p.suffix else (p / 'milvus.db')
@@ -84,6 +100,15 @@ class MilvusStore(LazyLLMStoreBase):
     def connect(self, embed_dims: Optional[Dict[str, int]] = None,
                 embed_datatypes: Optional[Dict[str, DataType]] = None,
                 global_metadata_desc: Optional[Dict[str, GlobalMetadataDesc]] = None, **kwargs):
+        """
+初始化 Milvus 客户端，传入向量化模型参数和全局元数据描述。
+
+Args:
+    embed_dims (Dict[str, int]): 每个嵌入键对应的向量维度。
+    embed_datatypes (Dict[str, DataType]): 每个嵌入键的数据类型。
+    global_metadata_desc (Dict[str, GlobalMetadataDesc]): 全局元数据字段的描述。
+    kwargs: 其他连接参数
+"""
         self._embed_dims = embed_dims or {}
         self._embed_datatypes = embed_datatypes or {}
         self._global_metadata_desc = global_metadata_desc or {}
@@ -143,6 +168,17 @@ class MilvusStore(LazyLLMStoreBase):
 
     @override
     def upsert(self, collection_name: str, data: List[dict]) -> bool:
+        """
+批量写入或更新切片数据到 Milvus 集合。
+
+Args:
+    collection_name (str): 集合名称，通常为 "group_embedKey" 格式。
+    data (List[dict]): 切片数据列表。
+
+**Returns:**
+
+- bool: 操作成功返回 True，否则 False。
+"""
         try:
             if not data: return True
             data_embeddings = data[0].get('embedding', {})
@@ -171,6 +207,18 @@ class MilvusStore(LazyLLMStoreBase):
 
     @override
     def delete(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> bool:
+        """
+删除整个集合或按条件删除指定记录。
+
+Args:
+    collection_name (str): 目标集合名称。
+    criteria (Optional[dict]): 若为 None 则删除整个集合；否则按 uid 列表或元数据条件过滤。
+    kwargs: 其他查询参数
+
+**Returns:**
+
+- bool: 如果删除成功返回True，否则返回False。
+"""
         try:
             with self._client_context() as client:
                 if not client.has_collection(collection_name):
@@ -190,6 +238,18 @@ class MilvusStore(LazyLLMStoreBase):
 
     @override
     def get(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> List[dict]:  # noqa: C901
+        """
+检索匹配主键或元数据过滤条件的记录。
+
+Args:
+    collection_name (str): 待查询集合。
+    criteria (Optional[dict]): 包含 'uid' 列表或元数据字段过滤条件。
+    kwargs: 其他查询参数
+
+**Returns:**
+
+- List[dict]: 每项包含 'uid' 及 'embedding' 映射。
+"""
         try:
             with self._client_context() as client:
                 if not client.has_collection(collection_name):
@@ -352,12 +412,6 @@ class MilvusStore(LazyLLMStoreBase):
         }
 
         def _replace_index_type(index_item: dict):
-            '''
-            Raise ValueError if the DataType is not supported by Milvus.
-            Raise ValueError if the IndexType is not compatible with the DataType.
-            Fallback to the default index type if the IndexType is compatible with the DataType
-            but not supported by Milvus.
-            '''
             embed_key = index_item.get('embed_key')
             dtype = self._embed_datatypes.get(embed_key)
             index_type = index_item.get('index_type').upper()
@@ -377,12 +431,6 @@ class MilvusStore(LazyLLMStoreBase):
             _replace_index_type(index_params)
 
     def _ensure_params_defaults(self, index_item: dict):
-        '''
-        Fill in the missing fields (index_type, metric_type, params) of a single index item.
-        Do not override the fields explicitly provided by the user (only setdefault)
-        params will be filled in with common defaults based on index_type
-        (if params already exist, only fill in missing keys)
-        '''
         if not isinstance(index_item, dict):
             return
 
@@ -470,6 +518,22 @@ class MilvusStore(LazyLLMStoreBase):
     def search(self, collection_name: str, query_embedding: Union[dict, List[float]], topk: int,
                filters: Optional[Dict[str, Union[List, set]]] = None, embed_key: Optional[str] = None,
                filter_str: Optional[str] = '', **kwargs) -> List[dict]:
+        """
+执行向量相似度检索，并可按元数据过滤。
+
+Args:
+    collection_name (str): 待搜索集合。
+    query_embedding (List[float]): 查询向量。
+    topk (int): 返回邻近数量。
+    filters (Optional[Dict[str, Union[List, Set]]]): 元数据过滤映射。
+    embed_key (str): 使用的嵌入字段。
+    filter_str (Optional[str], optional): Filter expression string. Defaults to empty string
+    kwargs: Other search parameters
+
+**Returns:**
+
+- List[dict]: 每项包含 'uid' 及相似度 'score'。
+"""
         with self._client_context() as client:
             if not embed_key or embed_key not in self._embed_datatypes:
                 raise ValueError(f'[Milvus Store - search] Not supported or None `embed_key`: {embed_key}')
@@ -517,14 +581,6 @@ class MilvusStore(LazyLLMStoreBase):
         return ret_str
 
     def validate_milvus_embed_keys(self, index_kwargs: Optional[Union[List, Dict]]):  # noqa: C901
-        '''
-        Validate and preprocess the index_kwargs of milvus store_conf:
-        1. Auto fill the only one missing embed_key into the configuration without embed_key;
-        2. The embed_key in self._embed must be a subset of the embed_key in store_conf;
-        3. store_conf can contain additional embed_key;
-        4. Duplicate embed_key is forbidden;
-        5. If multiple embed_key are missing, raise an error.
-        '''
         if not isinstance(index_kwargs, (list, dict)):
             raise TypeError(f'[Milvus Store] index_kwargs must be a list or dict, but got {type(index_kwargs)}')
 

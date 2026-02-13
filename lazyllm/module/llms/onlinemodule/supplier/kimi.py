@@ -5,6 +5,17 @@ from ..base import OnlineChatModuleBase
 
 
 class KimiChat(OnlineChatModuleBase):
+    """KimiChat 类，继承自 OnlineChatModuleBase，封装了调用 Moonshot AI 提供的 Kimi 聊天服务的能力。  
+可通过指定 API Key、模型名称和服务 URL，支持中文和英文的安全问答交互，并支持图像输入的 base64 格式处理。
+
+Args:
+    base_url (str): Kimi 服务的基础 URL，默认为 "https://api.moonshot.cn/"。
+    model (str): 使用的 Kimi 模型名称，默认为 "moonshot-v1-8k"。
+    api_key (Optional[str]): 访问 Kimi 服务的 API Key，若未提供则从 lazyllm 配置中读取。
+    stream (bool): 是否开启流式输出，默认为 True。
+    return_trace (bool): 是否返回调试追踪信息，默认为 False。
+    **kwargs: 其他传递给 OnlineChatModuleBase 的参数。
+"""
 
     def __init__(self, base_url: str = 'https://api.moonshot.cn/', model: str = 'moonshot-v1-8k',
                  api_key: str = None, stream: bool = True, return_trace: bool = False, **kwargs):

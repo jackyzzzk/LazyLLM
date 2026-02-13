@@ -10,6 +10,34 @@ from typing import Optional
 
 
 class Lightllm(LazyLLMDeployBase):
+    """此类是 ``LazyLLMDeployBase`` 的子类，基于 [LightLLM](https://github.com/ModelTC/lightllm) 框架提供的推理能力，用于对大语言模型进行推理。
+
+Args:
+    trust_remote_code (bool, optional): 是否信任远程代码，默认为True
+    launcher (Launcher, optional): 任务启动器，默认为单GPU远程启动器
+    log_path (str, optional): 日志文件路径，默认为None
+    **kw: 其他LightLLM服务器配置参数
+此类的关键字参数及其默认值如下：
+
+Keyword Args: 
+    tp (int): 张量并行参数，默认为 ``1``。
+    max_total_token_num (int): 最大总token数，默认为 ``64000``。
+    eos_id (int): 结束符ID，默认为 ``2``。
+    port (int): 服务的端口号，默认为 ``None``。此情况下LazyLLM会自动生成随机端口号。
+    host (str): 服务的IP地址，默认为 ``0.0.0.0``。
+    nccl_port (int): NCCL 端口，默认为 ``None``。此情况下LazyLLM会自动生成随机端口号。
+    tokenizer_mode (str): tokenizer的加载模式，默认为 ``auto``。
+    running_max_req_size (int): 推理引擎最大的并行请求数， 默认为 ``256``。
+    data_type (str): 模型权重的数据类型，默认为 ``float16``。
+    max_req_total_len (int): 请求的最大总长度，默认为 ``64000``。
+    max_req_input_len (int): 输入的最大长度，默认为 ``4096``。
+    long_truncation_mode (str): 长文本的截断模式，默认为 ``head``。
+
+
+Examples:
+    >>> from lazyllm import deploy
+    >>> infer = deploy.lightllm()
+    """
     keys_name_handle = {
         'inputs': 'inputs',
         'stop': 'stop_sequences'
@@ -60,6 +88,16 @@ class Lightllm(LazyLLMDeployBase):
         self.temp_folder = make_log_dir(log_path, 'lightllm') if log_path else None
 
     def cmd(self, finetuned_model=None, base_model=None):
+        """该方法用于生成启动LightLLM服务的命令。
+
+Args:
+    finetuned_model (str): 微调后的模型路径。
+    base_model (str): 基础模型路径，当finetuned_model无效时使用。
+
+**Returns:**
+
+- LazyLLMCMD: 一个包含启动命令的LazyLLMCMD对象。
+"""
         if not os.path.exists(finetuned_model) or \
             not any(filename.endswith('.bin') or filename.endswith('.safetensors')
                     for filename in os.listdir(finetuned_model)):
@@ -82,6 +120,15 @@ class Lightllm(LazyLLMDeployBase):
         return LazyLLMCMD(cmd=impl, return_value=self.geturl, checkf=verify_fastapi_func)
 
     def geturl(self, job=None):
+        """获取LightLLM服务的URL地址。
+
+Args:
+    job (optional): 任务对象，默认为None，此时使用self.job。
+
+**Returns:**
+
+- str: 服务的URL地址，格式为"http://{ip}:{port}/generate"。
+"""
         if job is None:
             job = self.job
         if lazyllm.config['mode'] == lazyllm.Mode.Display:
@@ -91,6 +138,19 @@ class Lightllm(LazyLLMDeployBase):
 
     @staticmethod
     def extract_result(x, inputs):
+        """从服务响应中提取生成的文本结果。
+
+Args:
+    x (str): 服务返回的响应文本。
+    inputs (str): 输入文本。
+
+**Returns:**
+
+- str: 提取出的生成文本。
+
+异常:
+    Exception: 当解析JSON响应失败时抛出异常。
+"""
         try:
             if x.startswith('data:'): return json.loads(x[len('data:'):])['token']['text']
             else: return json.loads(x)['generated_text'][0]

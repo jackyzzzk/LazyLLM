@@ -79,6 +79,18 @@ _register_trim_module({'lazyllm.flow.flow': ['__call__']}, continuous=True)
 _register_trim_module({'lazyllm.flow.flow': ['_run', 'invoke'], 'lazyllm.common.bind': ['__call__']})
 
 class FlowBase(metaclass=_MetaBind):
+    """用于构建流式结构的基类，可以容纳多个项目并组织成层次化结构。
+
+该类允许将不同的对象（包括 ``FlowBase`` 实例或其他类型对象）组合在一起，
+并为其分配可选的名称，从而支持按名称或索引访问。结构中的项目可以动态添加或遍历。
+
+Args:
+    *items: 要包含在流中的项目，可以是 ``FlowBase`` 的实例或其他对象。
+    item_names (list of str, optional): 对应于每个项目的名称列表，会与 ``items`` 按顺序配对。
+        如果未提供，所有项目的名称默认为 ``None``。
+    auto_capture (bool, optional): 是否启用自动捕获。如果为 ``True``，在上下文管理器模式下，
+        将自动捕获当前作用域中新定义的变量并加入流。默认为 ``False``。
+"""
     def __init__(self, *items, item_names=None, auto_capture=False) -> None:
         self._father = None
         self._items, self._item_names, self._item_ids, self._item_pos = [], [], [], []
@@ -172,19 +184,89 @@ class FlowBase(metaclass=_MetaBind):
         raise AttributeError(f'{self.__class__} object has no attribute {name}')
 
     def id(self, module=None):
+        """获取模块或流程的 ID。如果传入字符串则原样返回；如果传入已绑定的模块则返回其对应的 item_id；不传参时返回整个 flow 的唯一 id。
+
+Args:
+    module (Optional[Union[str, Any]]): 目标模块或字符串标识。
+
+**Returns:**
+
+- str: 对应的 ID 字符串。
+"""
         if isinstance(module, str): return module
         return self._item_ids[self._items.index(module)] if module else self._flow_id
 
     @property
     def is_root(self):
+        """一个属性，指示当前流项目是否是流结构的根。
+
+**Returns:**
+
+- bool: 如果当前项目没有父级（ ``_father`` 为None），则为True，否则为False。
+
+
+Examples:
+    >>> import lazyllm
+    >>> p = lazyllm.pipeline()
+    >>> p.is_root
+    True
+    >>> p2 = lazyllm.pipeline(p)
+    >>> p.is_root
+    False
+    >>> p2.is_root
+    True
+    """
         return self._father is None
 
     @property
     def ancestor(self):
+        """一个属性，返回当前流项目的最顶层祖先。
+
+如果当前项目是根，则返回其自身。
+
+**Returns:**
+
+- FlowBase: 最顶层的祖先流项目。
+
+
+Examples:
+    >>> import lazyllm
+    >>> p = lazyllm.pipeline()
+    >>> p2 = lazyllm.pipeline(p)
+    >>> p.ancestor is p2
+    True
+    """
         if self.is_root: return self
         return self._father.ancestor
 
     def for_each(self, filter, action):
+        """对流中每个通过过滤器的项目执行一个操作。
+
+该方法递归地遍历流结构，将操作应用于通过过滤器的每个项目。
+
+Args:
+    filter (callable): 一个接受项目作为输入并返回bool的函数，如果该项目应该应用操作，则返回True。
+    action (callable): 一个接受项目作为输入并对其执行某些操作的函数。
+
+**Returns:**
+
+- None
+
+
+Examples:
+    >>> import lazyllm
+    >>> def test1(): print('1')
+    ... 
+    >>> def test2(): print('2')
+    ... 
+    >>> def test3(): print('3')
+    ... 
+    >>> flow = lazyllm.pipeline(test1, lazyllm.pipeline(test2, test3))
+    >>> flow.for_each(lambda x: callable(x), lambda x: print(x))
+    <Function type=test1>
+    <Function type=test2>
+    <Function type=test3>
+    """
         for item in self._items:
             if isinstance(item, FlowBase):
                 item.for_each(filter, action)
@@ -207,6 +289,24 @@ bind.__exit__ = _bind_exit
 # TODO(wangzhihong): support workflow launcher.
 # Disable item launchers if launcher is already set in workflow.
 class LazyLLMFlowsBase(FlowBase, metaclass=LazyLLMRegisterMetaClass):
+    """一个支持流程封装、钩子注册与调用逻辑的基础类。
+
+`LazyLLMFlowsBase` 是 LazyLLM 中所有流程（Flow）的基类，用于组织一系列可调用模块的执行流程，并支持钩子（hook）机制、同步控制、后处理逻辑等功能。它的设计旨在统一封装执行调用、异常处理、后处理、流程表示等功能，适用于各种同步数据处理场景。
+
+该类通常不直接使用，而是被诸如 `Pipeline`、`Parallel` 等具体流程类继承和使用。
+
+```text
+输入 --> [Flow模块1 -> Flow模块2 -> ... -> Flow模块N] --> 输出
+                   ↑             ↓
+               pre_hook       post_hook
+```
+
+Args:
+    args: 可变长度参数列表。
+    post_action: 在主流程结束后对输出进行进一步处理的可调用对象。默认为 ``None``。
+    auto_capture: 如果为 True，在上下文管理器模式下将自动捕获当前作用域中新定义的变量加入流中。默认为 False。
+    **kw: 命名组件的键值对。
+"""
     def __init__(self, *args, post_action=None, auto_capture=False, **kw):
         assert len(args) == 0 or len(kw) == 0, f'Cannot provide args `{args}` and kwargs `{kw}` at the same time'
         if len(args) > 0 and isinstance(args[0], (tuple, list)):
@@ -237,13 +337,25 @@ class LazyLLMFlowsBase(FlowBase, metaclass=LazyLLMRegisterMetaClass):
         return r
 
     def register_hook(self, hook_type: LazyLLMHook):
+        """注册一个 Hook 类型，用于在流程执行前后进行额外处理。
+
+Args:
+    hook_type (LazyLLMHook): 要注册的 Hook 类型或实例。
+"""
         self._hooks.add(hook_type)
 
     def unregister_hook(self, hook_type: LazyLLMHook):
+        """注销已注册的 Hook。
+
+Args:
+    hook_type (LazyLLMHook): 要移除的 Hook 类型或实例。
+"""
         if hook_type in self._hooks:
             self._hooks.remove(hook_type)
 
     def clear_hooks(self):
+        """清空所有已注册的 Hook。
+"""
         self._hooks = set()
 
     def _post_process(self, output):
@@ -253,10 +365,35 @@ class LazyLLMFlowsBase(FlowBase, metaclass=LazyLLMRegisterMetaClass):
         raise NotImplementedError
 
     def start(self, *args, **kw):
+        """启动流处理执行（已弃用）。
+
+此方法已弃用，建议直接将流实例作为函数调用。执行流处理并返回结果。
+
+Args:
+    *args: 传递给流处理的可变位置参数。
+    **kw: 传递给流处理的命名参数。
+
+**Returns:**
+
+- 流处理的结果。
+
+**Note:**
+
+- 此方法已标记为弃用，请使用流实例的直接调用方式代替。
+"""
         lazyllm.LOG.warning('start is depreciated, please use flow as a function instead')
         return self(*args, **kw)
 
     def set_sync(self, sync=True):
+        """设置流程是否同步执行。
+
+Args:
+    sync (bool): 是否同步执行，默认为 True。
+
+**Returns:**
+
+- LazyLLMFlowsBase: 当前实例。
+"""
         self._sync = sync
         return self
 
@@ -267,6 +404,12 @@ class LazyLLMFlowsBase(FlowBase, metaclass=LazyLLMRegisterMetaClass):
         return lazyllm.make_repr('Flow', self.__class__.__name__, subs=subs, items=self._item_names)
 
     def wait(self):
+        """等待流程中所有异步任务完成。
+
+**Returns:**
+
+- LazyLLMFlowsBase: 当前实例。
+"""
         def filter(x):
             return hasattr(x, 'job') and isinstance(x.job, ReadOnlyWrapper) and not x.job.isNone()
         self.for_each(filter, lambda x: x.job.wait())
@@ -274,6 +417,15 @@ class LazyLLMFlowsBase(FlowBase, metaclass=LazyLLMRegisterMetaClass):
 
     # bind_args: dict(input=input, args=dict(key=value))
     def invoke(self, it, __input, *, bind_args_source=None, **kw):
+        """调用指定对象（可为函数、模块或 bind 对象）并传入输入数据。  
+支持对 bind 对象进行 root/pipeline 输出替换。
+
+Args:
+    it (Callable | bind): 要调用的对象。
+    __input (Any): 输入数据。
+    bind_args_source (Any, optional): 绑定参数来源。
+    **kw: 其他关键字参数。
+"""
         if isinstance(it, bind):
             if isinstance(self, Pipeline):
                 it._args = [self.output(a) if a in self._items else a for a in it._args]
@@ -300,6 +452,16 @@ class LazyLLMFlowsBase(FlowBase, metaclass=LazyLLMRegisterMetaClass):
             raise _change_exception_type(e, FlowException) from None
 
     def bind(self, *args, **kw):
+        """为当前流程绑定参数，生成一个 bind 对象。
+
+Args:
+    *args: 位置参数。
+    **kw: 关键字参数。
+
+**Returns:**
+
+- bind: 绑定后的 bind 对象。
+"""
         return bind(self, *args, **kw)
 
 
@@ -317,6 +479,26 @@ def _set_current_save_flag(flag):
 
 @contextmanager
 def save_pipeline_result(flag: bool = True):
+    """一个上下文管理器，用于临时设置是否保存流水线中的中间执行结果。
+
+在进入上下文时，会将 `Pipeline.g_save_flow_result` 设置为指定值；退出上下文后会恢复为原来的状态。适用于调试或需要记录中间输出的场景。
+
+Args:
+    flag (bool): 是否启用结果保存功能，默认为 True。
+
+**Returns:**
+
+- ContextManager: 上下文管理器。
+
+
+Examples:
+    >>> import lazyllm
+    >>> pipe = lazyllm.pipeline(lambda x: x + 1, lambda x: x * 2)
+    >>> with lazyllm.save_pipeline_result(True):
+    ...     result = pipe(1)
+    >>> result
+    4
+    """
     old_flag = _get_current_save_flag()
     try:
         _set_current_save_flag(flag)
@@ -328,6 +510,32 @@ def save_pipeline_result(flag: bool = True):
 #                                               \> post-action
 # TODO(wangzhihong): support mult-input and output
 class Pipeline(LazyLLMFlowsBase):
+    """一个形成处理阶段管道的顺序执行模型。
+
+ ``Pipeline``类是一个处理阶段的线性序列，其中一个阶段的输出成为下一个阶段的输入。它支持在最后一个阶段之后添加后续操作。它是 ``LazyLLMFlowsBase``的子类，提供了一个延迟执行模型，并允许以延迟方式包装和注册函数。
+
+Args:
+    args (list of callables or single callable): 管道的处理阶段。每个元素可以是一个可调用的函数或 ``LazyLLMFlowsBase.FuncWrap``的实例。如果提供了单个列表或元组，则将其解包为管道的阶段。
+    post_action (callable, optional): 在管道的最后一个阶段之后执行的可选操作。默认为None。
+    auto_capture (bool, optional): 如果为 True，在上下文管理器模式下将自动捕获当前作用域中新定义的变量加入流中。默认为 ``False``。
+    kwargs (dict of callables): 管道的命名处理阶段。每个键值对表示一个命名阶段，其中键是名称，值是可调用的阶段。
+
+**Returns:**
+
+- 管道的最后一个阶段的输出。
+
+
+Examples:
+    >>> import lazyllm
+    >>> ppl = lazyllm.pipeline(
+    ...     stage1=lambda x: x+1,
+    ...     stage2=lambda x: f'get {x}'
+    ... )
+    >>> ppl(1)
+    'get 2'
+    >>> ppl.stage2
+    <Function type=lambda>
+    """
     def __init__(self, *args, post_action=None, auto_capture=False, save_result=None, **kw):
         super().__init__(*args, post_action=post_action, auto_capture=auto_capture, **kw)
         self._save_flow_result = save_result if save_result is not None else (
@@ -368,7 +576,19 @@ class Pipeline(LazyLLMFlowsBase):
     def input(self): return bind.Args(self.id())
     @property
     def kwargs(self): return bind.Args(self.id(), 'kwargs')
-    def output(self, module, unpack=False): return bind.Args(self.id(), self.id(module), unpack=unpack)
+
+    def output(self, module, unpack=False):
+        """获取流水线中指定模块的输出结果。
+
+Args:
+    module: 要获取输出的模块。可以是模块对象或模块名称。
+    unpack (bool): 是否解包输出结果。默认为False。
+
+**Returns:**
+
+- bind.Args: 一个绑定参数对象，用于在流水线中传递数据。
+"""
+        return bind.Args(self.id(), self.id(module), unpack=unpack)
 
     def _run(self, __input, **kw):
         output = __input
@@ -412,6 +632,78 @@ config.add('parallel_multiprocessing', bool, False, 'PARALLEL_MULTIPROCESSING',
 #  input -> module21 -> ... -> module2N -> out2 -> (out1, out2, out3)
 #        \> module31 -> ... -> module3N -> out3 /
 class Parallel(LazyLLMFlowsBase):
+    """用于管理LazyLLMFlows中的并行流的类。
+
+这个类继承自LazyLLMFlowsBase，提供了一个并行或顺序运行操作的接口。它支持使用线程进行并发执行，并允许以字典形式返回结果。
+
+
+可以这样可视化 ``Parallel`` 类：
+
+```text
+#       /> module11 -> ... -> module1N -> out1 \\
+# input -> module21 -> ... -> module2N -> out2 -> (out1, out2, out3)
+#       \> module31 -> ... -> module3N -> out3 /
+```        
+
+可以这样可视化 ``Parallel.sequential`` 方法：
+
+```text
+# input -> module21 -> ... -> module2N -> out2 -> 
+```
+
+Args:
+    args: 基类的可变长度参数列表。
+    _scatter (bool, optional): 如果为 ``True``，输入将在项目之间分割。如果为 ``False``，相同的输入将传递给所有项目。默认为 ``False``。
+    _concurrent (bool, optional): 如果为 ``True``，操作将使用线程并发执行。如果为 ``False``，操作将顺序执行。默认为 ``True``。
+    multiprocessing (bool, optional): 如果为 ``True``，将使用多进程而不是多线程进行并行执行。这可以提供真正的并行性，但会增加进程间通信的开销。默认为 ``False``。
+    auto_capture (bool, optional): 如果为 True，在上下文管理器模式下将自动捕获当前作用域中新定义的变量加入流中。默认为 ``False``。
+    kwargs: 基类的任意关键字参数。
+
+<span style="font-size: 20px;">&ensp;**`asdict property`**</span>
+
+标记Parellel，使得Parallel每次调用时的返回值由package变为dict。当使用 ``asdict`` 时，请务必保证parallel的元素被取了名字，例如:  ``parallel(name=value)`` 。
+
+<span style="font-size: 20px;">&ensp;**`astuple property`**</span>
+
+标记Parellel，使得Parallel每次调用时的返回值由package变为tuple。
+
+<span style="font-size: 20px;">&ensp;**`aslist property`**</span>
+
+标记Parellel，使得Parallel每次调用时的返回值由package变为list。
+
+<span style="font-size: 20px;">&ensp;**`sum property`**</span>
+
+标记Parellel，使得Parallel每次调用时的返回值做一次累加。
+
+<span style="font-size: 20px;">&ensp;**`join(self, string)`**</span>
+
+标记Parellel，使得Parallel每次调用时的返回值通过 ``string`` 做一次join。
+
+
+Examples:
+    >>> import lazyllm
+    >>> test1 = lambda a: a + 1
+    >>> test2 = lambda a: a * 4
+    >>> test3 = lambda a: a / 2
+    >>> ppl = lazyllm.parallel(test1, test2, test3)
+    >>> ppl(1)
+    (2, 4, 0.5)
+    >>> ppl = lazyllm.parallel(a=test1, b=test2, c=test3)
+    >>> ppl(1)
+    {2, 4, 0.5}
+    >>> ppl = lazyllm.parallel(a=test1, b=test2, c=test3).asdict
+    >>> ppl(2)
+    {'a': 3, 'b': 8, 'c': 1.0}
+    >>> ppl = lazyllm.parallel(a=test1, b=test2, c=test3).astuple
+    >>> ppl(-1)
+    (0, -4, -0.5)
+    >>> ppl = lazyllm.parallel(a=test1, b=test2, c=test3).aslist
+    >>> ppl(0)
+    [1, 0, 0.0]
+    >>> ppl = lazyllm.parallel(a=test1, b=test2, c=test3).join('\\n')
+    >>> ppl(1)
+    '2\\n4\\n0.5'
+    """
 
     @staticmethod
     def _worker(func, barrier, sid, local_data, *args, global_data=None, **kw):
@@ -455,11 +747,46 @@ class Parallel(LazyLLMFlowsBase):
     sum = property(partial(_set_status, type=PostProcessType.SUM))
 
     def join(self, string=''):
+        """标记Parallel，使得每次调用时的返回值通过指定字符串连接。
+
+Args:
+    string (str): 用于连接结果的字符串。默认为空字符串。
+
+**Returns:**
+
+- Parallel: 返回当前 Parallel 实例，其结果将被字符串连接。
+
+**示例:**
+
+```python
+>>> ppl = lazyllm.parallel(a=test1, b=test2, c=test3).join('\n')
+>>> ppl(1)
+'2\n4\n0.5'
+```
+"""
         assert isinstance(string, str), 'argument of join shoule be str'
         return Parallel._set_status(self, type=Parallel.PostProcessType.JOIN, args=string)
 
     @classmethod
     def sequential(cls, *args, **kw):
+        """创建一个顺序执行的Parallel实例。
+
+这个类方法会将 ``_concurrent`` 设置为 ``False``，使得所有操作按顺序执行而不是并行执行。
+
+可以这样可视化 ``Parallel.sequential`` 方法：
+
+```text
+# input -> module21 -> ... -> module2N -> out2 -> 
+```
+
+Args:
+    args: 传递给 Parallel 构造函数的可变长度参数列表。
+    kwargs: 传递给 Parallel 构造函数的关键字参数。
+
+**Returns:**
+
+- Parallel: 一个新的顺序执行的 Parallel 实例。
+"""
         return cls(*args, _concurrent=False, **kw)
 
     # items = [a, b, c, d, e], skip_items = [1, 3]/['b', 'd'] -> items = [a, c, e]
@@ -542,6 +869,41 @@ class Parallel(LazyLLMFlowsBase):
 #  (in1, in2, in3) -> in2 -> module21 -> ... -> module2N -> out2 -> (out1, out2, out3)
 #                  \> in3 -> module31 -> ... -> module3N -> out3 /
 class Diverter(Parallel):
+    """一个流分流器，将输入通过不同的模块以并行方式路由。
+
+Diverter类是一种专门的并行处理形式，其中多个输入分别通过一系列模块并行处理。然后将输出聚合并作为元组返回。
+
+当您拥有可以并行执行的不同数据处理管道，并希望在单个流构造中管理它们时，此类非常有用。
+
+```text
+#                 /> in1 -> module11 -> ... -> module1N -> out1 \\
+# (in1, in2, in3) -> in2 -> module21 -> ... -> module2N -> out2 -> (out1, out2, out3)
+#                 \> in3 -> module31 -> ... -> module3N -> out3 /
+```                    
+
+Args:
+    args: 可变长度参数列表，代表并行执行的模块。
+    _concurrent (bool, optional): 控制模块是否应并行执行的标志。默认为 ``True``。可用 ``Diverter.sequential`` 代替 ``Diverter`` 来设置此变量。
+    auto_capture (bool, optional): 如果为 True，在上下文管理器模式下将自动捕获当前作用域中新定义的变量加入流中。默认为 ``False``。
+    kwargs: 代表额外模块的任意关键字参数，其中键是模块的名称。
+
+.. property:: 
+    asdict
+
+    和 ``parallel.asdict`` 一样
+
+
+Examples:
+    >>> import lazyllm
+    >>> div = lazyllm.diverter(lambda x: x+1, lambda x: x*2, lambda x: -x)
+    >>> div(1, 2, 3)
+    (2, 4, -3)
+    >>> div = lazyllm.diverter(a=lambda x: x+1, b=lambda x: x*2, c=lambda x: -x).asdict
+    >>> div(1, 2, 3)
+    {'a': 2, 'b': 4, 'c': -3}
+    >>> div(dict(c=3, b=2, a=1))
+    {'a': 2, 'b': 4, 'c': -3}
+    """
     def __init__(self, *args, _concurrent: Union[bool, int] = True, auto_capture: bool = False, **kw):
         super().__init__(*args, _scatter=True, _concurrent=_concurrent, auto_capture=auto_capture, **kw)
 
@@ -552,6 +914,42 @@ class Diverter(Parallel):
 # Attention: Cannot be used in async tasks, ie: training and deploy
 # TODO: add check for async tasks
 class Warp(Parallel):
+    """一个流形变器，将单个模块并行应用于多个输入。
+
+Warp类设计用于将同一个处理模块应用于一组输入。它有效地将单个模块“形变”到输入上，使每个输入都并行处理。输出被收集并作为元组返回。需要注意的是，这个类不能用于异步任务，如训练和部署。
+
+```text
+#                 /> in1 \                            /> out1 \
+# (in1, in2, in3) -> in2 -> module1 -> ... -> moduleN -> out2 -> (out1, out2, out3)
+#                 \> in3 /                            \> out3 /
+```
+
+Args:
+    args: 可变长度参数列表，代表要应用于所有输入的单个模块。
+    _scatter (bool): 是否以分片方式拆分输入，默认 False。
+    _concurrent (bool | int): 是否启用并发执行，可设定最大并发数。默认启用并发。
+    auto_capture (bool, optional): 如果为 True，在上下文管理器模式下将自动捕获当前作用域中新定义的变量加入流中。默认为 ``False``。
+    kwargs: 未来扩展的任意关键字参数。
+
+注意:
+    - 只允许一个函数在warp中。
+    - Warp流不应用于异步任务，如训练和部署。
+
+
+Examples:
+    >>> import lazyllm
+    >>> warp = lazyllm.warp(lambda x: x * 2)
+    >>> warp(1, 2, 3, 4)
+    (2, 4, 6, 8)
+    >>> warp = lazyllm.warp(lazyllm.pipeline(lambda x: x * 2, lambda x: f'get {x}'))
+    >>> warp(1, 2, 3, 4)
+    ('get 2', 'get 4', 'get 6', 'get 8')
+
+    >>> from lazyllm import package
+    >>> warp1 = lazyllm.warp(lambda x, y: x * 2 + y)
+    >>> print(warp1([package(1,2), package(10, 20)]))
+    (4, 40)
+    """
     def __init__(self, *args, _concurrent: Union[bool, int] = True, auto_capture: bool = False, **kw):
         super().__init__(*args, _scatter=True, _concurrent=_concurrent, auto_capture=auto_capture, **kw)
         if len(self._items) > 1: self._items = [Pipeline(*self._items)]
@@ -573,6 +971,66 @@ class Warp(Parallel):
 #     case cond2: input -> module21 -> ... -> module2N -> out; break
 #     case cond3: input -> module31 -> ... -> module3N -> out; break
 class Switch(LazyLLMFlowsBase):
+    """一个根据条件选择并执行流的控制流机制。
+
+ ``Switch``类提供了一种根据表达式的值或条件的真实性选择不同流的方法。它类似于其他编程语言中找到的switch-case语句。
+
+```text
+# switch(exp):
+#     case cond1: input -> module11 -> ... -> module1N -> out; break
+#     case cond2: input -> module21 -> ... -> module2N -> out; break
+#     case cond3: input -> module31 -> ... -> module3N -> out; break
+```   
+
+Args:
+    args: 可变长度参数列表，交替提供条件和对应的流或函数。条件可以是返回布尔值的可调用对象或与输入表达式进行比较的值。
+    conversion (callable, optional): 在进行条件匹配之前，对判定表达式 ``exp`` 进行转换或预处理的函数。默认为 ``None``。
+    post_action (callable, optional): 在执行选定流后要调用的函数。默认为 ``None``。
+    judge_on_full_input(bool): 如果设置为 ``True`` ， 则通过 ``switch`` 的输入进行条件判断，否则会将输入拆成判定条件和真实的输入两部分，仅对判定条件进行判断。
+
+Raises:
+    TypeError: 如果提供的参数数量为奇数，或者如果第一个参数不是字典且条件没有成对提供。
+
+
+Examples:
+    >>> import lazyllm
+    >>> def is_positive(x): return x > 0
+    ...
+    >>> def is_negative(x): return x < 0
+    ...
+    >>> switch = lazyllm.switch(is_positive, lambda x: 2 * x, is_negative, lambda x : -x, 'default', lambda x : '000', judge_on_full_input=True)
+    >>>
+    >>> switch(1)
+    2
+    >>> switch(0)
+    '000'
+    >>> switch(-4)
+    4
+    >>>
+    >>> def is_1(x): return True if x == 1 else False
+    ...
+    >>> def is_2(x): return True if x == 2 else False
+    ...
+    >>> def is_3(x): return True if x == 3 else False
+    ...
+    >>> def t1(x): return 2 * x
+    ...
+    >>> def t2(x): return 3 * x
+    ...
+    >>> def t3(x): return x
+    ...
+    >>> with lazyllm.switch(judge_on_full_input=True) as sw:
+    ...     sw.case[is_1::t1]
+    ...     sw.case(is_2, t2)
+    ...     sw.case[is_3, t3]
+    ...
+    >>> sw(1)
+    2
+    >>> sw(2)
+    6
+    >>> sw(3)
+    3
+    """
     # Switch({cond1: M1, cond2: M2, ..., condN: MN})
     # Switch(cond1, M1, cond2, M2, ..., condN, MN)
     def __init__(self, *args, conversion=None, post_action=None, judge_on_full_input=True):
@@ -627,6 +1085,32 @@ class Switch(LazyLLMFlowsBase):
 
 # result = cond(input) ? tpath(input) : fpath(input)
 class IFS(LazyLLMFlowsBase):
+    """在LazyLLMFlows框架中实现If-Else功能。
+
+IFS（If-Else Flow Structure）类设计用于根据给定条件的评估有条件地执行两个提供的路径之一（真路径或假路径）。执行选定路径后，可以应用可选的后续操作，并且如果指定，输入可以与输出一起返回。
+
+Args:
+    cond (callable): 一个接受输入并返回布尔值的可调用对象。它决定执行哪个路径。如果 ``cond(input)`` 评估为True，则执行 ``tpath`` ；否则，执行 ``fpath`` 。
+    tpath (callable): 如果条件为True，则执行的路径。
+    fpath (callable): 如果条件为False，则执行的路径。
+    post_action (callable, optional): 执行选定路径后执行的可选可调用对象。可以用于进行清理或进一步处理。默认为None。
+
+**Returns:**
+
+- 执行路径的输出。
+
+
+Examples:
+    >>> import lazyllm
+    >>> cond = lambda x: x > 0
+    >>> tpath = lambda x: x * 2
+    >>> fpath = lambda x: -x
+    >>> ifs_flow = lazyllm.ifs(cond, tpath, fpath)
+    >>> ifs_flow(10)
+    20
+    >>> ifs_flow(-5)
+    5
+    """
     def __init__(self, cond, tpath, fpath, post_action=None):
         super().__init__(cond, tpath, fpath, post_action=post_action)
 
@@ -642,6 +1126,37 @@ class IFS(LazyLLMFlowsBase):
 #  in(out) -> module1 -> ... -> moduleN -> exp, out -> out
 #      ⬆----------------------------------------|
 class Loop(Pipeline):
+    """初始化一个循环流结构，该结构将一系列函数重复应用于输入，直到满足停止条件或达到指定的迭代次数。
+
+Loop结构允许定义一个简单的控制流，其中一系列步骤在循环中应用，可以使用可选的停止条件来根据步骤的输出提前退出循环。
+
+Args:
+    item (callable or list of callables): 将在循环中应用的函数或可调用对象。
+    stop_condition (callable, optional): 一个函数，它接受循环中最后一个项目的输出作为输入并返回一个布尔值。如果返回 ``True``，循环将停止。如果为 ``None``，循环将继续直到达到 ``count``。默认为 ``None``。
+    count (int, optional): 运行循环的最大迭代次数。默认为 ``sys.maxsize``。
+    post_action (callable, optional): 循环结束后调用的函数。默认为 ``None``。
+    auto_capture (bool, optional): 如果为 True，在上下文管理器模式下将自动捕获当前作用域中新定义的变量加入流中。默认为 ``False``。
+    judge_on_full_input (bool): 如果设置为 ``True`` ，则通过 ``stop_condition`` 的输入进行条件判断；否则会将输入拆成判定条件和真实的输入两部分，仅对判定条件进行判断。
+
+Raises:
+    AssertionError: 如果提供的 ``stop_condition`` 既不是 ``callable`` 也不是 ``None``。
+
+
+Examples:
+    >>> import lazyllm
+    >>> loop = lazyllm.loop(lambda x: x * 2, stop_condition=lambda x: x > 10, judge_on_full_input=True)
+    >>> loop(1)
+    16
+    >>> loop(3)
+    12
+    >>>
+    >>> with lazyllm.loop(stop_condition=lambda x: x > 10, judge_on_full_input=True) as lp:
+    ...    lp.f1 = lambda x: x + 1
+    ...    lp.f2 = lambda x: x * 2
+    ...
+    >>> lp(0)
+    14
+    """
     def __init__(self, *item, stop_condition=None, count=sys.maxsize, post_action=None,
                  auto_capture=False, judge_on_full_input=True, **kw):
         super().__init__(*item, post_action=post_action, auto_capture=auto_capture, **kw)
@@ -652,6 +1167,21 @@ class Loop(Pipeline):
 
 
 class Graph(LazyLLMFlowsBase):
+    """一个基于有向无环图（DAG）的复杂流控制结构。
+
+Graph类允许您创建复杂的处理图，其中节点表示处理函数，边表示数据流。它支持拓扑排序来确保正确的执行顺序，并可以处理多输入和多输出的复杂依赖关系。
+
+Graph类特别适用于需要复杂数据流和依赖管理的场景，如机器学习管道、数据处理工作流等。
+
+Args:
+    post_action (callable, optional): 在图执行完成后要调用的函数。默认为 ``None``。
+    auto_capture (bool, optional): 是否自动捕获上下文中的变量。默认为 ``False``。
+    kwargs: 代表命名节点和对应函数的任意关键字参数。
+
+**Returns:**
+
+- 图的最终输出结果。
+"""
 
     start_node_name, end_node_name = '__start__', '__end__'
 
@@ -675,16 +1205,94 @@ class Graph(LazyLLMFlowsBase):
         self._constants = []
 
     def set_node_arg_name(self, arg_names):
+        """设置节点的参数名称。
+
+此方法用于为图中的节点设置函数参数的名称，这对于多参数函数的正确调用很重要。
+
+Args:
+    arg_names (list): 参数名称的列表，与节点创建时的顺序对应。
+
+
+Examples:
+    >>> import lazyllm
+    >>> with lazyllm.graph() as g:
+    ...     g.add = lambda a, b: a + b
+    ...     g.multiply = lambda x, y: x * y
+    >>> g.set_node_arg_name([['x', 'y'], ['a', 'b']])
+    >>> g._nodes['add'].arg_names
+    ['x', 'y']
+    >>> g._nodes['multiply'].arg_names
+    ['a', 'b']
+    """
         for node_name, name in zip(self._item_names, arg_names):
             self._nodes[node_name].arg_names = name
 
     @property
-    def start_node(self): return self._nodes[Graph.start_node_name]
+    def start_node(self):
+        """获取图的起始节点。
+
+**Returns:**
+
+- Node: 图的起始节点（__start__）对象。
+
+
+Examples:
+    >>> import lazyllm
+    >>> with lazyllm.graph() as g:
+    ...     g.process = lambda x: x * 2
+    >>> start = g.start_node
+    >>> start.name
+    '__start__'
+    """
+        return self._nodes[Graph.start_node_name]
 
     @property
-    def end_node(self): return self._nodes[Graph.end_node_name]
+    def end_node(self):
+        """获取图的结束节点。
+
+**Returns:**
+
+- Node: 图的结束节点（__end__）对象。
+
+
+Examples:
+    >>> import lazyllm
+    >>> with lazyllm.graph() as g:
+    ...     g.process = lambda x: x * 2
+    >>> end = g.end_node
+    >>> end.name
+    '__end__'
+    """
+        return self._nodes[Graph.end_node_name]
 
     def add_edge(self, from_node, to_node, formatter=None):
+        """在图中添加一条边，定义节点之间的数据流。
+
+此方法用于定义图中节点之间的连接关系，指定数据如何从一个节点流向另一个节点。
+
+Args:
+    from_node (str or Node): 源节点的名称或Node对象。
+    to_node (str or Node): 目标节点的名称或Node对象。
+    formatter (callable, optional): 可选的格式化函数，用于在传递数据时进行转换。默认为 ``None``。
+
+
+Examples:
+    >>> import lazyllm
+    >>> with lazyllm.graph() as g:
+    ...     g.node1 = lambda x: x * 2
+    ...     g.node2 = lambda x: x + 1
+    ...     g.node3 = lambda x, y: x + y
+    >>> g.add_edge('__start__', 'node1')
+    >>> g.add_edge('node1', 'node2')
+    >>> g.add_edge('node3', '__end__')
+    >>> g._nodes['node1'].outputs
+    [<Flow type=Node name=node2>]
+    >>> def double_input(data):
+    ...     return data * 2
+    >>> g.add_edge('node1', 'node3', formatter=double_input)
+    >>> g._nodes['node3'].inputs
+    {'node1': <function double_input at ...>}
+    """
         if isinstance(from_node, (tuple, list)):
             return [self.add_edge(f, to_node, formatter) for f in from_node]
         if isinstance(to_node, (tuple, list)):
@@ -699,6 +1307,23 @@ class Graph(LazyLLMFlowsBase):
         self._out_degree[from_node] += 1
 
     def add_const_edge(self, constant, to_node):
+        """添加一个常量边，将固定值传递给指定节点。
+
+此方法用于将常量值作为输入传递给图中的节点，无需从其他节点获取数据。
+
+Args:
+    constant: 要传递的常量值。
+    to_node (str or Node): 目标节点的名称或Node对象。
+
+
+Examples:
+    >>> import lazyllm
+    >>> with lazyllm.graph() as g:
+    ...     g.add = lambda x, y: x + y
+    >>> g.add_const_edge(10, 'add')
+    >>> g._constants
+    [10]
+    """
         if isinstance(to_node, (tuple, list)):
             return [self.add_const_edge(constant, t) for t in to_node]
         if isinstance(to_node, str): to_node = self._nodes[to_node]
@@ -706,6 +1331,39 @@ class Graph(LazyLLMFlowsBase):
         self._constants.append(constant)
 
     def topological_sort(self):
+        """执行拓扑排序，返回正确的节点执行顺序。
+
+此方法使用Kahn算法对有向无环图进行拓扑排序，确保所有依赖关系都得到满足。
+
+**Returns:**
+
+- List[Node]: 按拓扑顺序排列的节点列表。
+
+Raises:
+- ValueError: 如果图中存在循环依赖。
+
+
+Examples:
+    >>> import lazyllm
+    >>> with lazyllm.graph() as g:
+    ...     g.node1 = lambda x: x * 2
+    ...     g.node2 = lambda x: x + 1
+    ...     g.node3 = lambda x, y: x + y
+    >>> g.add_edge('__start__', 'node1')
+    >>> g.add_edge('node1', 'node2')
+    >>> g.add_edge('node1', 'node3')
+    >>> g.add_edge('node2', 'node3')
+    >>> g.add_edge('node3', '__end__')
+    >>> sorted_nodes = g.topological_sort()
+    >>> [node.name for node in sorted_nodes]
+    ['__start__', 'node1', 'node2', 'node3', '__end__']
+    >>> g.add_edge('node3', 'node1')
+    >>> try:
+    ...     g.topological_sort()
+    ... except ValueError as e:
+    ...     print("检测到循环依赖")
+    检测到循环依赖
+    """
         in_degree = self._in_degree.copy()
         queue = deque([node for node in self._nodes.values() if in_degree[node] == 0])
         sorted_nodes: List[Graph.Node] = []
@@ -740,6 +1398,34 @@ class Graph(LazyLLMFlowsBase):
         return r
 
     def compute_node(self, sid, node, intermediate_results, futures):
+        """计算单个节点的输出结果。
+
+此方法是图的内部方法，用于执行单个节点的计算，包括获取输入数据、应用格式化函数、调用节点函数等。
+
+Args:
+    sid: 会话ID。
+    node (Node): 要计算的节点。
+    intermediate_results (dict): 中间结果存储。
+    futures (dict): 异步任务字典。
+
+**Returns:**
+
+- 节点的计算结果。
+
+
+Examples:
+    >>> import lazyllm
+    >>> with lazyllm.graph() as g:
+    ...     g.add = lambda x, y: x + y
+    ...     g.multiply = lambda x: x * 2
+    >>> g.add_edge('__start__', 'add')
+    >>> g.add_const_edge(5, 'add')
+    >>> g.add_edge('add', 'multiply')
+    >>> g.add_edge('multiply', '__end__')
+    >>> result = g(3)  # x=3, y=5 (常量)
+    >>> result
+    16
+    """
         globals._init_sid(sid)
 
         kw = {}

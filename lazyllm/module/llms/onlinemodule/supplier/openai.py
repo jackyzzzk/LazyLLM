@@ -12,6 +12,18 @@ from ..fileHandler import FileHandlerBase
 
 
 class OpenAIChat(OnlineChatModuleBase, FileHandlerBase):
+    """OpenAI API集成模块，用于聊天完成和微调操作。
+
+提供与OpenAI聊天模型交互的接口，支持推理和微调功能。继承自OnlineChatModuleBase和FileHandlerBase。
+
+Args:
+    base_url (str, optional): OpenAI API基础URL，默认为"https://api.openai.com/v1/"。
+    model (str, optional): 用于聊天完成的模型名称，默认为"gpt-3.5-turbo"。
+    api_key (str, optional): OpenAI API密钥，默认为lazyllm.config['openai_api_key']。
+    stream (bool, optional): 使用流式响应，默认为True。
+    return_trace (bool, optional): 返回追踪信息，默认为False。
+    **kwargs: 传递给OnlineChatModuleBase的额外参数。
+"""
     TRAINABLE_MODEL_LIST = ['gpt-3.5-turbo-0125', 'gpt-3.5-turbo-1106',
                             'gpt-3.5-turbo-0613', 'babbage-002',
                             'davinci-002', 'gpt-4-0613']
@@ -196,6 +208,14 @@ class OpenAIChat(OnlineChatModuleBase, FileHandlerBase):
 
 
 class OpenAIEmbed(LazyLLMOnlineEmbedModuleBase):
+    """OpenAI 在线嵌入模块。
+该类封装了对 OpenAI 嵌入 API 的调用，默认使用模型 `text-embedding-ada-002`，用于将文本编码为向量表示。
+
+Args:
+    embed_url (str): OpenAI 嵌入 API 的 URL，默认为 "https://api.openai.com/v1/embeddings"。
+    embed_model_name (str): 使用的嵌入模型名称，默认为 "text-embedding-ada-002"。
+    api_key (str, optional): OpenAI 的 API Key。若未提供，则从 lazyllm.config 中读取。
+"""
     NO_PROXY = True
 
     def __init__(self, embed_url: str = 'https://api.openai.com/v1/', embed_model_name: str = 'text-embedding-ada-002',
@@ -208,6 +228,21 @@ class OpenAIEmbed(LazyLLMOnlineEmbedModuleBase):
 
 
 class OpenAIRerank(LazyLLMOnlineRerankModuleBase):
+    """
+OpenAIRerank 类用于调用 OpenAI 的 Reranking 接口，对文本列表进行重排序（Re-ranking）。
+
+该类继承自 `OnlineEmbeddingModuleBase`，主要功能包括：
+
+- 设置嵌入（Embedding）模型的 URL 和名称；
+- 封装请求数据并调用 OpenAI Rerank API；
+- 解析返回的排序结果。
+
+Args:
+    embed_url (str): OpenAI API 的基础 URL，默认值为 'https://api.openai.com/v1/'。
+    embed_model_name (str): 嵌入模型名称，用于指定 Rerank 模型。
+    api_key (str): OpenAI API Key，可选，如果未提供，则使用 lazyllm 配置中的默认值。
+    **kw: 其他可选关键字参数，传递给父类构造函数。
+"""
     NO_PROXY = True
 
     def __init__(self, embed_url: str = 'https://api.openai.com/v1/', embed_model_name: str = 'rerank-multilingual-v3.0',

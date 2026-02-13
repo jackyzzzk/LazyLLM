@@ -3,6 +3,15 @@ import inspect
 import ast
 
 class LazyLLMHook(ABC):
+    """LazyLLM 提供的钩子系统抽象基类，用于在函数或方法执行前后插入自定义逻辑。
+
+此类是一个抽象基类（ABC），定义了钩子系统的基本接口。通过继承此类并实现其抽象方法，可以创建自定义的钩子来监控、记录或修改函数执行过程。
+
+Args:
+    obj: 要监控的对象（通常是函数或方法）。此对象会被存储在钩子实例中，供其他方法使用。
+
+**注意**: 此类是抽象基类，不能直接实例化。必须继承此类并实现所有抽象方法才能使用。
+"""
 
     @abstractmethod
     def __init__(self, obj):
@@ -10,13 +19,32 @@ class LazyLLMHook(ABC):
 
     @abstractmethod
     def pre_hook(self, *args, **kwargs):
+        """前置钩子方法，在被监控函数执行前调用。
+
+这是一个抽象方法，需要在子类中实现。
+
+Args:
+    *args: 传递给被监控函数的位置参数。
+    **kwargs: 传递给被监控函数的关键字参数。
+"""
         pass
 
     @abstractmethod
     def post_hook(self, output):
+        """后置钩子方法，在被监控函数执行后调用。
+
+这是一个抽象方法，需要在子类中实现。
+
+Args:
+    output: 被监控函数的返回值。
+"""
         pass
 
     def report():  # This is not an abstract method, but it is required to be implemented in subclasses.
+        """生成钩子的执行报告。
+
+这是一个抽象方法，需要在子类中实现。
+"""
         raise NotImplementedError
 
 
@@ -40,6 +68,11 @@ def _check_and_get_pre_assign_number(func):
 
 
 class LazyLLMFuncHook(LazyLLMHook):
+    """函数作为钩子的辅助函数，如果函数中存在 yield 语句，则 yield 之前的语句作为 pre_hook，yield 之后的语句作为 post_hook。
+
+Args:
+    func: 作为钩子的函数。
+"""
     def __init__(self, func):
         self._func = func
         self._isgeneratorfunction = inspect.isgeneratorfunction(func)

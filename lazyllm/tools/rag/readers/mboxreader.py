@@ -7,6 +7,13 @@ from ..doc_node import DocNode
 from lazyllm import LOG
 
 class MboxReader(LazyLLMReaderBase):
+    """用于解析 Mbox 邮件存档文件的模块。读取邮件内容并格式化为文本，支持限制最大邮件数和自定义消息格式。
+
+Args:
+    max_count (int): 最大读取的邮件数量，默认 0 表示读取全部邮件。
+    message_format (str): 邮件文本格式模板，支持使用 ``{_date}``、``{_from}``、``{_to}``、``{_subject}`` 和 ``{_content}`` 占位符。
+    return_trace (bool): 是否记录处理过程的 trace，默认为 True。
+"""
     DEFAULT_MESSAGE_FORMAT: str = (
         'Date: {_date}\n'
         'From: {_from}\n'

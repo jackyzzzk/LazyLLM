@@ -1,0 +1,2 @@
+{"query": "rewrite1", "is_augmented": true, "augment_method": "query_rewrite"}
+{"query": "rewrite2", "is_augmented": true, "augment_method": "query_rewrite"}

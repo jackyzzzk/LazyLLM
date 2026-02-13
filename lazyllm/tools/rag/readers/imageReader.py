@@ -22,6 +22,16 @@ def b64_2_img(data: str) -> 'PIL.Image':
     return 'PIL.Image'.open(buff)
 
 class ImageReader(LazyLLMReaderBase):
+    """用于从图片文件中读取内容的模块。支持保留图片、解析图片中的文本（基于OCR或预训练视觉模型），并返回文本和图片路径的节点列表。
+
+Args:
+    parser_config (Optional[Dict]): 解析器配置，包含模型和处理器，默认为 None。当设置 parse_text=True 且 parser_config=None 时，会自动根据 text_type 加载相应模型。
+    keep_image (bool): 是否保留图片的 base64 编码，默认为 False。
+    parse_text (bool): 是否解析图片中的文本，默认为 False。
+    text_type (str): 解析文本的类型，支持 ``text``（默认）和 ``plain_text``。当为 ``plain_text`` 时，使用 pytesseract 进行OCR；否则使用预训练视觉编码解码模型。
+    pytesseract_model_kwargs (Optional[Dict]): 传递给 pytesseract OCR 的可选参数，默认为空字典。
+    return_trace (bool): 是否记录处理过程的 trace，默认为 True。
+"""
     def __init__(self, parser_config: Optional[Dict] = None, keep_image: bool = False, parse_text: bool = False,
                  text_type: str = 'text', pytesseract_model_kwargs: Optional[Dict] = None,
                  return_trace: bool = True) -> None:

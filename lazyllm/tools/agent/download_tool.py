@@ -10,18 +10,6 @@ from .file_tool import _check_root, _resolve_path
 @register('tool')
 def download_file(url: str, dst: str, timeout: int = 30, root: Optional[str] = None,
                   allow_unsafe: bool = False) -> dict:
-    '''Download a file from a URL to a local path.
-
-    Args:
-        url (str): HTTP/HTTPS URL to download.
-        dst (str): Destination file path.
-        timeout (int, optional): Request timeout in seconds. Defaults to 30.
-        root (str, optional): Restrict writes to this root directory.
-        allow_unsafe (bool, optional): Allow network download. Defaults to False.
-
-    Returns:
-        dict: Status result.
-    '''
     if not url or not url.startswith(('http://', 'https://')):
         return {'status': 'error', 'reason': 'Only http/https URLs are supported.', 'url': url}
 

@@ -8,6 +8,13 @@ from lazyllm.thirdparty import zlib, struct, olefile
 from lazyllm import LOG
 
 class HWPReader(LazyLLMReaderBase):
+    """HWP文件解析器，支持从本地文件系统读取 HWP 文件。它会从文档中提取正文部分的文本内容，返回 DocNode 列表。
+
+HWP 是一种专有的二进制格式，主要在韩国使用。由于格式封闭，因此只能解析部分内容（如文本段落），但对常规文本提取已经足够使用。
+
+Args:
+    return_trace (bool): 是否启用 trace 日志记录，默认为 ``True``。
+"""
     def __init__(self, return_trace: bool = True) -> None:
         super().__init__(return_trace=return_trace)
         self._FILE_HEADER_SECTION = 'FileHeader'

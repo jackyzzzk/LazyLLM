@@ -16,6 +16,35 @@ FC_PROMPT_PLACEHOLDER = '<!lazyllm-fc-prompt!>'
 
 
 class LazyLLMPrompterBase(metaclass=LazyLLMRegisterMetaClass):
+    """LazyLLM提示词基类，用于管理和生成模型提示词。
+
+Args:
+    show (bool): 是否显示生成的提示词，默认为False。
+    tools (Optional[List]): 可用工具列表，默认为None。
+    history (Optional[List]): 对话历史记录，默认为None。
+
+Attributes:
+    ISA (str): 指令分隔符起始标记 "<!lazyllm-spliter!>"。
+
+    ISE (str): 指令分隔符结束标记 "</!lazyllm-spliter!>"。
+
+
+Configuration Items:
+    - system: 系统角色设定
+
+    - sos/eos: 会话开始/结束标记
+
+    - soh/eoh: 人类输入开始/结束标记
+
+    - soa/eoa: AI回复开始/结束标记
+
+    - soe/eoe: 工具执行结果开始/结束标记
+
+    - tool_start_token/tool_end_token: 工具调用开始/结束标记
+
+    - tool_args_token: 工具参数标记
+
+"""
     ISA = '<!lazyllm-spliter!>'
     ISE = '</!lazyllm-spliter!>'
 
@@ -184,6 +213,15 @@ class LazyLLMPrompterBase(metaclass=LazyLLMRegisterMetaClass):
         return dict(messages=history, tools=tools) if tools else dict(messages=history)
 
     def pre_hook(self, func: Optional[Callable] = None):
+        """设置预处理钩子函数，供外部在生成提示词前对输入数据进行自定义处理。
+
+Args:
+    func (Optional[Callable]): 一个可调用对象，作为预处理钩子函数，接收并处理输入数据。
+
+**Returns:**
+
+- LazyLLMPrompterBase: 返回自身实例，方便链式调用。
+"""
         self._pre_hook = func
         return self
 
@@ -204,6 +242,16 @@ class LazyLLMPrompterBase(metaclass=LazyLLMRegisterMetaClass):
                         tools: Union[List[Dict[str, Any]], None] = None,
                         label: Union[str, None] = None,
                         *, show: bool = False, return_dict: bool = False) -> Union[str, Dict]:
+        """根据用户输入，生成对应的Prompt.
+
+Args:
+    input (Option[str | Dict]):  Prompter的输入，如果是dict，会填充到instruction的槽位中；如果是str，则会作为输入。
+    history (Option[List[List | Dict]]): 历史对话，可以为 ``[[u, s], [u, s]]`` 或 openai的history格式，默认为None。
+    tools (Option[List[Dict]]: 可以使用的工具合集，大模型用作FunctionCall时使用，默认为None
+    label (Option[str]): 标签，训练或微调时使用，默认为None
+    show (bool): 标志是否打印生成的Prompt，默认为False
+    return_dict (bool): 标志是否返回dict，一般情况下使用 ``OnlineChatModule`` 时会设置为True。如果返回dict，则仅填充 ``instruction``。默认为False
+"""
         input = copy.deepcopy(input)
         if self._pre_hook:
             input, history, tools, label = self._pre_hook(input, history, tools, label)
@@ -219,13 +267,46 @@ class LazyLLMPrompterBase(metaclass=LazyLLMRegisterMetaClass):
         return result
 
     def get_response(self, output: str, input: Union[str, None] = None) -> str:
+        """用作对Prompt的截断，只保留有价值的输出
+
+Args:
+     output (str): 大模型的输出
+     input (Option[[str]): 大模型的输入，若指定此参数，会将输出中包含输入的部分全部截断，默认为None
+"""
         if input and output.startswith(input):
             return output[len(input):]
         return output if getattr(self, '_split', None) is None else output.split(self._split)[-1]
 
 class EmptyPrompter(LazyLLMPrompterBase):
+    """继承自 `LazyLLMPrompterBase` 的空提示生成器，用于直接返回原始输入。
+
+该类不会对输入进行任何处理，适用于无需格式化的调试、测试或占位场景。
+
+
+Examples:
+    >>> from lazyllm.components.prompter import EmptyPrompter
+    >>> prompter = EmptyPrompter()
+    >>> prompter.generate_prompt("Hello LazyLLM")
+    'Hello LazyLLM'
+    >>> prompter.generate_prompt({"query": "Tell me a joke"})
+    {'query': 'Tell me a joke'}
+    >>> # Even with additional parameters, the input is returned unchanged
+    >>> prompter.generate_prompt("No-op", history=[["Hi", "Hello"]], tools=[{"name": "search"}], label="debug")
+    'No-op'
+    """
 
     def generate_prompt(self, input, history=None, tools=None, label=None, show=False, return_dict=False):
+        """直接返回输入的Prompt实现，继承自 `LazyLLMPrompterBase`。
+
+该方法不会对输入做任何格式化操作，适用于调试、测试或占位场景。
+
+Args:
+    input (Any): 任意输入，作为Prompt返回。
+    history (Option[List[List | Dict]]): 历史对话，可忽略，默认None。
+    tools (Option[List[Dict]]): 工具参数，可忽略，默认None。
+    label (Option[str]): 标签，可忽略，默认None。
+    show (bool): 是否打印返回内容，默认为False。
+"""
         if return_dict:
             return {'messages': [{'role': 'user', 'content': input}]}
         if self._show or show: LOG.info(input)

@@ -7,6 +7,7 @@ from ..doc_node import DocNode
 
 @dataclass
 class _MdSplit:
+    """_MdSplit(path: List[str], level: int, header: Optional[str], content: str, token_size: int, type: str)"""
     path: List[str]
     level: int
     header: Optional[str]
@@ -16,6 +17,31 @@ class _MdSplit:
 
 
 class MarkdownSplitter(_TextSplitterBase):
+    """
+递归拆分markdown文本。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int): 控制并行处理的线程/进程数量。
+    keep_trace (bool): 是否保留markdown文本的追踪。默认为False。
+    keep_headers (bool): 是否保留headers在拆分后的文本中。默认为False。
+    keep_lists (bool): 是否保留lists在拆分后的文本中。默认为False。
+    keep_code_blocks (bool): 是否保留code blocks在拆分后的文本中。默认为False。
+    keep_tables (bool): 是否保留tables在拆分后的文本中。默认为False。
+    keep_images (bool): 是否保留images在拆分后的文本中。默认为False。
+    keep_links (bool): 是否保留links在拆分后的文本中。默认为False。
+    **kwargs: 传递给拆分器的额外参数。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import MarkdownSplitter
+    >>> documents = Document(dataset_path='your_doc_path', embed=m, manager=False)
+    >>> documents.create_node_group(name="markdown", transform=MarkdownSplitter,
+                                    chunk_size=1024, chunk_overlap=100, keep_trace=True, keep_headers=True)
+    """
     def __init__(self, chunk_size: int = _UNSET, overlap: int = _UNSET, num_workers: int = _UNSET,
                  keep_trace: bool = _UNSET, keep_headers: bool = _UNSET, keep_lists: bool = _UNSET,
                  keep_code_blocks: bool = _UNSET, keep_tables: bool = _UNSET, keep_images: bool = _UNSET,
@@ -187,6 +213,30 @@ class MarkdownSplitter(_TextSplitterBase):
         return False
 
     def split_markdown_by_semantics(self, md_text: str) -> List[_MdSplit]:
+        """
+拆分markdown文本的语义。
+
+Args:
+    md_text (str): 要拆分的markdown文本。
+    **kwargs: 传递给拆分器的额外参数。
+
+**Returns:**
+
+- List[_MdSplit]: 拆分后的文本，包含markdown语义的元数据。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import MarkdownSplitter
+    >>> splitter = MarkdownSplitter(keep_trace=True, keep_headers=True, keep_lists=True, keep_code_blocks=True, keep_tables=True, keep_images=True, keep_links=True)
+    >>> md_text = '# Hello, world!
+    ## Hello, world!
+    ### Hello, world!
+    ### Hello, world!'
+    >>> splits = splitter.split_markdown_by_semantics(md_text)
+    >>> print(splits)
+    """
         code_ranges = self._get_code_block_ranges(md_text)
 
         heading_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)

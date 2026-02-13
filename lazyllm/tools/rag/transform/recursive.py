@@ -4,6 +4,32 @@ from .character import CharacterSplitter
 from .base import _UNSET
 
 class RecursiveSplitter(CharacterSplitter):
+    """
+递归拆分文本。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int):控制并行处理的线程/进程数量。
+    keep_separator (bool): 是否保留分隔符在拆分后的文本中。默认为False。
+    is_separator_regex (bool): 是否使用正则表达式作为分隔符。默认为False。
+    separators (List[str]): 用于拆分的分隔符列表。默认为['
+
+', '
+', ' ', '']。如果你想按多个分隔符拆分，可以设置这个参数。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import RecursiveSplitter
+    >>> splitter = RecursiveSplitter(separators=['
+
+    ', '
+    ', ' ', ''])
+    >>> documents = Document(dataset_path='your_doc_path', embed=m, manager=False)
+    >>> documents.create_node_group(name="recursive", transform=RecursiveSplitter, chunk_size=1024, chunk_overlap=100)
+    """
     def __init__(self, chunk_size: int = _UNSET, overlap: int = _UNSET, num_workers: int = _UNSET,
                  keep_separator: bool = _UNSET, is_separator_regex: bool = _UNSET,
                  separators: List[str] = _UNSET, **kwargs):

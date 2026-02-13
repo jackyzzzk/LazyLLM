@@ -5,6 +5,16 @@ from ..base import OnlineChatModuleBase
 
 
 class DeepSeekChat(OnlineChatModuleBase):
+    """DeepSeek大语言模型接口模块。
+
+Args:
+    base_url (str): API基础URL，默认为"https://api.deepseek.com"
+    model (str): 模型名称，默认为"deepseek-chat"
+    api_key (str): API密钥，如果为None则从配置中获取
+    stream (bool): 启用流式输出，默认为True
+    return_trace (bool): 返回追踪信息，默认为False
+    **kwargs: 其他传递给基类的参数
+"""
     def __init__(self, base_url: str = 'https://api.deepseek.com', model: str = 'deepseek-chat',
                  api_key: str = None, stream: bool = True, return_trace: bool = False, **kwargs):
         super().__init__(api_key=api_key or lazyllm.config['deepseek_api_key'],

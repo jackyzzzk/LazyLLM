@@ -59,6 +59,7 @@ class CancelTaskRequest(BaseModel):
 
 
 class TaskStatus(str, Enum):
+    """An enumeration."""
     WAITING = 'WAITING'
     WORKING = 'WORKING'
     CANCEL_REQUESTED = 'CANCEL_REQUESTED'
@@ -68,6 +69,7 @@ class TaskStatus(str, Enum):
 
 
 class TaskType(str, Enum):
+    """An enumeration."""
     DOC_ADD = 'DOC_ADD'
     DOC_DELETE = 'DOC_DELETE'
     DOC_UPDATE_META = 'DOC_UPDATE_META'
@@ -75,7 +77,6 @@ class TaskType(str, Enum):
 
 
 def _get_task_type_weight(task_type: str) -> int:
-    '''get task type weight'''
     weight_map = {
         TaskType.DOC_DELETE.value: 10,
         TaskType.DOC_UPDATE_META.value: 30,
@@ -86,7 +87,6 @@ def _get_task_type_weight(task_type: str) -> int:
 
 
 def _calculate_task_score(task_type: str, user_priority: int) -> int:
-    '''calculate task score'''
     type_weight = _get_task_type_weight(task_type)
     return type_weight * 10 - user_priority * 15
 

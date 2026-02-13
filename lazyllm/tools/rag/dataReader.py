@@ -1,7 +1,3 @@
-'''
-The overall process of SimpleDirectoryReader is borrowed from LLAMA_INDEX, but we have added a customized part
-based on it, that is, allowing users to register custom rules instead of processing only based on file suffixes.
-'''
 import os
 import mimetypes
 import multiprocessing
@@ -61,6 +57,35 @@ class _DefaultFileMetadataFunc:
         return {meta_key: meta_value for meta_key, meta_value in default_meta.items() if meta_value is not None}
 
 class SimpleDirectoryReader(ModuleBase):
+    """
+模块化的文档目录读取器，继承自 ModuleBase，支持从文件系统读取多种格式的文档并转换为标准化的 DocNode 。
+
+该类支持直接指定文件列表或输入目录（二者互斥）。内置了对常见格式（如 PDF、DOCX、PPTX、图片、CSV、Excel、音视频等）的支持，也允许用户注册自定义的文件读取器。
+
+Args:
+    input_dir (Optional[str]): 输入目录路径。与 input_files 互斥。目录必须存在。
+    input_files (Optional[List]): 直接指定的文件列表。与 input_dir 互斥。文件必须存在于指定路径或 `config['data_path']` 下。
+    exclude (Optional[List]): 需要排除的文件模式列表。
+    exclude_hidden (bool): 是否排除隐藏文件。默认为 True。
+    recursive (bool): 是否递归读取子目录。默认为 False。
+    encoding (str): 文本文件的编码格式。默认为 "utf-8"。
+    filename_as_id (bool): 已弃用参数，不再使用。如果提供会打印警告日志。
+    required_exts (Optional[List[str]]): 需要处理的文件扩展名白名单。仅处理这些扩展名的文件。
+    file_extractor (Optional[Dict[str, Callable]]): 自定义文件读取器字典。键为文件名模式，值为读取器函数。
+    fs (Optional[AbstractFileSystem]): 自定义文件系统。默认为系统的默认文件系统。
+    metadata_genf (Optional[Callable[[str], Dict]]): 元数据生成函数，接收文件路径返回元数据字典。默认为内部实现 (_DefaultFileMetadataFunc)。
+    num_files_limit (Optional[int]): 最大读取文件数量限制。超过时仅处理前 N 个文件。
+    return_trace (bool): 是否返回处理过程追踪信息。默认为 False。
+    metadatas (Optional[Dict]): 预定义的全局元数据字典，将附加到所有文档上。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools.dataReader import SimpleDirectoryReader
+    >>> reader = SimpleDirectoryReader(input_dir="yourpath/",recursive=True,exclude=["*.tmp"],required_exts=[".pdf", ".docx"])
+    >>> documents = reader.load_data()
+    """
     default_file_readers: Dict[str, Type[ReaderBase]] = {
         '*.pdf': PDFReader,
         '*.docx': DocxReader,
@@ -193,6 +218,23 @@ class SimpleDirectoryReader(ModuleBase):
 
     @staticmethod
     def find_extractor_by_file(input_file: Path, file_extractor: Dict[str, Callable], pathm: PurePath = Path):
+        """
+根据文件名或后缀从文件读取器映射中选择合适的提取器（extractor）。
+
+该函数首先尝试使用文件后缀进行直接匹配（如 `*.txt`），
+若未命中，则会遍历 `file_extractor` 的模式键（如 `*.json`, `**/docs/*.md`），
+使用 `fnmatch` 进行模糊匹配，找到最符合的读取器。
+如果没有匹配项，将返回默认读取器 `DefaultReader`。
+
+Args:
+    input_file (Path): 输入文件路径。
+    file_extractor (Dict[str, Callable]): 文件模式到提取器的映射表。
+    pathm (PurePath): 路径处理模块，用于生成匹配模式，默认使用 `Path`。
+
+**Returns:**
+
+- Callable: 与文件匹配的提取器函数，若无匹配则返回 `DefaultReader`。
+"""
         filename_lower = str(input_file).lower()
         file_suffix = filename_lower.split('.')[-1]
         if extractor := file_extractor.get(f'*.{file_suffix}'): return extractor
@@ -213,6 +255,25 @@ class SimpleDirectoryReader(ModuleBase):
     def load_file(input_file: Path, metadata_genf: Callable[[str], Dict], file_extractor: Dict[str, Callable],
                   encoding: str = 'utf-8', pathm: PurePath = Path, fs: Optional['fsspec.AbstractFileSystem'] = None,
                   metadata: Optional[Dict] = None) -> List[DocNode]:
+        """使用指定的 Reader 将单个文件加载为 `DocNode` 列表。
+
+该方法会根据文件名模式匹配合适的读取器（reader），并遵循以下优先级生成元数据：
+`用户提供 > reader 自动生成 > metadata_genf 生成`。
+在配置允许的情况下支持回退到原始文本读取。
+
+Args:
+    input_file (Path): 要读取的文件路径。
+    metadata_genf (Callable): 根据文件路径生成元数据的函数。
+    file_extractor (Dict[str, Callable]): 文件扩展名模式与 reader 的映射表。
+    encoding (str): 文件读取时使用的文本编码，默认为 "utf-8"。
+    pathm (PurePath): 路径处理模块，支持本地或远程路径。
+    fs (AbstractFileSystem): 可选文件系统对象，兼容 fsspec 抽象。
+    metadata (Dict): 可选用户自定义元数据，优先于自动生成。
+
+**Returns:**
+
+- List[DocNode]: 从文件中提取的文档对象列表。
+"""
         # metadata priority: user > reader > metadata_genf
         user_metadata: Dict = metadata or {}
         metadata_generated: Dict = metadata_genf(str(input_file)) if metadata_genf else {}
@@ -276,11 +337,46 @@ class SimpleDirectoryReader(ModuleBase):
 
     @staticmethod
     def get_default_reader(file_ext: str) -> Callable[[Path, Dict], List[DocNode]]:
+        """
+根据文件扩展名获取默认的文件读取器（Reader）。
+
+该函数通过文件扩展名（如 `.txt`、`.json`）在默认读取器映射表中查找对应的 Reader，
+若未以 `"*."` 开头，会自动补全后缀格式（例如 `"txt"` → `"*.txt"`）。
+常见的默认 Reader 包括纯文本读取器、JSON 读取器、Markdown 读取器等。
+
+Args:
+    file_ext (str): 文件扩展名或匹配模式（例如 `"txt"` 或 `"*.json"`）。
+
+**Returns:**
+
+- Callable[[Path, Dict], List[DocNode]]: 与该扩展名对应的读取器函数，若未匹配则返回 `None`。
+"""
         if not file_ext.startswith('*.'): file_ext = '*.' + file_ext
         return SimpleDirectoryReader.default_file_readers.get(file_ext)
 
     @staticmethod
     def add_post_action_for_default_reader(file_ext: str, f: Callable[[DocNode], Union[DocNode, List[DocNode]]]):
+        """
+为默认 Reader 添加后处理函数（Post Action）。
+
+该方法允许在默认文件读取器（Reader）完成文档解析后，对生成的 `DocNode`
+进行自定义后处理（如文本清洗、节点拆分、结构调整等）。
+若指定的扩展名没有默认读取器，会抛出 `KeyError` 异常。
+
+后处理函数可以是以下类型之一：
+
+1. 继承自 `NodeTransform` 的类；
+2. 普通函数，接收一个 `DocNode` 并返回修改后的 `DocNode` 或列表；
+3. 可实例化的类型，会自动创建实例。
+
+Args:
+    file_ext (str): 文件扩展名或匹配模式（例如 `"*.txt"`）。
+    f (Callable[[DocNode], Union[DocNode, List[DocNode]]]): 后处理函数或节点转换类。
+
+**Raises:**
+
+- KeyError: 当指定文件扩展名没有默认 Reader 时抛出。
+"""
         if not file_ext.startswith('*.'): file_ext = '*.' + file_ext
         if file_ext not in SimpleDirectoryReader.default_file_readers:
             raise KeyError(f'{file_ext} has no default reader, use Document.add_reader instead')
@@ -303,6 +399,20 @@ config.add('use_fallback_reader', bool, True, 'USE_FALLBACK_READER',
 
 
 class FileReader(object):
+    """
+文件内容读取器，主要功能是将多种格式的输入文件转换为拼接后的纯文本内容。
+
+Args:
+    input_files (Optional[List]):直接指定的文件列表。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools.dataReader import FileReader
+    >>> reader = FileReader()
+    >>> content = reader("yourpath/")
+    """
 
     def __call__(self, input_files):
         file_list = _lazyllm_get_file_list(input_files)

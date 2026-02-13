@@ -23,6 +23,7 @@ lazyllm.config.add('auto_model_config_map_path', str, '', 'AUTO_MODEL_CONFIG_MAP
 
 @dataclass
 class TrainConfig:
+    """TrainConfig(finetune_model_name: str = 'llm', base_model: str = 'llm', training_type: str = 'SFT', finetuning_type: str = 'LoRA', data_path: str = 'path/to/dataset', num_gpus: int = 1, val_size: float = 0.1, num_epochs: int = 1, learning_rate: float = 0.0001, lr_scheduler_type: str = 'cosine', batch_size: int = 32, cutoff_len: int = 1024, lora_r: int = 8, lora_alpha: int = 32, lora_rate: float = 0.1)"""
     finetune_model_name: str = 'llm'
     base_model: str = 'llm'
     training_type: str = 'SFT'
@@ -50,18 +51,6 @@ def update_config(input_dict: dict, default_data: type) -> dict:
 INPUT_SPLIT = ' ### input '
 
 def uniform_sft_dataset(dataset_path: str, target: str = 'alpaca') -> str:
-    '''
-    {origin_format}.{suffix} -> {target_format}, supported all 8 cases:
-    1. openai.json   -> alpaca: Conversion: openai2alpaca: json
-    2. openai.jsonl  -> alpaca: Conversion: openai2alpaca: json
-    3. alpaca.json   -> alpaca: Keep: json
-    4. alpaca.jsonl  -> alpaca: Restore: jsonl -> json
-    5. openai.json   -> openai: Restore: json -> jsonl
-    6. openai.jsonl  -> openai: Keep: jsonl
-    7. alpaca.json   -> openai: Conversion: alpaca2openai: jsonl
-    8. alpaca.jsonl  -> openai: Conversion: alpaca2openai: jsonl
-    Note: target-suffix does match:{'openai': 'jsonl'; 'alpaca': 'json'}
-    '''
     assert os.path.exists(dataset_path), f'Path: {dataset_path} does not exist!'
 
     data = datasets.load_dataset('json', data_files=dataset_path)
@@ -190,16 +179,6 @@ def openai2alpaca(data) -> list:
     return res
 
 def encode_files(files, encode_func: Optional[Callable] = None):
-    '''
-    Generic file encoding method
-
-    Args:
-        files: List of files
-        encode_func: file encode function
-
-    Returns:
-        encoded_files: List of encoded files
-    '''
     if not encode_func: return files
     if not isinstance(files, list): files = [files]
 

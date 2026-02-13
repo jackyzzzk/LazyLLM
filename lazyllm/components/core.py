@@ -5,6 +5,28 @@ from lazyllm import launchers, LazyLLMLaunchersBase
 from typing import Union
 
 class ComponentBase(object, metaclass=LazyLLMRegisterMetaClass):
+    """组件基类，提供统一的接口与基础实现，便于创建不同类型的组件。  
+组件通过指定的 Launcher 来执行任务，支持自定义任务执行逻辑。
+
+Args:
+    launcher (LazyLLMLaunchersBase or type, optional): 组件使用的启动器实例或启动器类，默认为空启动器（empty）。
+
+
+Examples:
+    >>> from lazyllm.components.core import ComponentBase
+    >>> class MyComponent(ComponentBase):
+    ...     def apply(self, x):
+    ...         return x * 2
+    >>> comp = MyComponent()
+    >>> comp.name = "ExampleComponent"
+    >>> print(comp.name)
+    ExampleComponent
+    >>> result = comp(10)
+    >>> print(result)
+    20
+    >>> print(comp.apply(5))
+    10
+    """
     def __init__(self, *, launcher=launchers.empty()):  # noqa B008
         self._llm_name = None
         self.job = ReadOnlyWrapper()
@@ -16,9 +38,21 @@ class ComponentBase(object, metaclass=LazyLLMRegisterMetaClass):
             raise RuntimeError('Invalid launcher given:', launcher)
 
     def apply():
+        """组件执行的核心方法，需由子类实现。  
+定义组件的具体业务逻辑或任务执行步骤。  
+
+**注意:**  
+调用组件时，如果子类重写了此方法，则会调用此方法执行任务。  
+"""
         raise NotImplementedError('please implement function \'apply\'')
 
     def cmd(self, *args, **kw) -> Union[str, tuple, list]:
+        """生成组件的执行命令，需由子类实现。  
+返回的命令可以是字符串、元组或列表，表示具体执行任务的指令。  
+
+**注意:**  
+调用组件时，如果未重写 `apply` 方法，将通过此命令生成任务并由启动器执行。  
+"""
         raise NotImplementedError('please implement function \'cmd\'')
 
     @property

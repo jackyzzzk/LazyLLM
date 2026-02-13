@@ -13,6 +13,43 @@ lazyllm.config.add('mindie_home', str, '', 'MINDIE_HOME', description='The home 
 verify_fastapi_func = verify_func_factory(error_message='Service Startup Failed',
                                           running_message='Daemon start success')
 class Mindie(LazyLLMDeployBase):
+    """此类是 ``LazyLLMDeployBase`` 的一个子类, 用于部署和管理MindIE大模型推理服务。它封装了MindIE服务的配置生成、进程启动和API交互的全流程。
+
+Args:
+    trust_remote_code (bool): 是否信任远程代码(如HuggingFace模型)。默认为 ``True``。
+    launcher: 任务启动器实例，默认为 ``launchers.remote()``。
+    log_path (str): 日志保存路径，若为 ``None`` 则不保存日志。
+    **kw: 其他配置参数
+
+Keyword Args: 
+            npuDeviceIds: NPU设备ID列表(如 ``[[0,1]]`` 表示使用2张卡)
+            worldSize: 模型并行数量
+            port: 服务端口（设为 ``'auto'`` 时自动分配30000-40000的随机端口)
+            maxSeqLen: 最大序列长度
+            maxInputTokenLen: 单次输入最大token数
+            maxPrefillTokens: 预填充token上限
+            config: 自定义配置文件
+
+Notes
+                : 
+   必须预先设置环境变量 ``LAZYLLM_MINDIE_HOME`` 指向MindIE安装目录, 若未指定 ``finetuned_model`` 或路径无效，会自动回退到 ``base_model``
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.components.deploy import Mindie            
+    >>> deployer = Mindie(
+    ...     port=30000,
+    ...     launcher=lazyllm.launchers.remote(),
+    ...     max_seq_len=32000,
+    ...     log_path="/path/to/logs"
+    ... )
+    >>> cmd = deployer.cmd(
+    ...     finetuned_model="/path/to/finetuned_model",
+    ...     base_model="/path/to/base_model")
+    >>> print("Service URL:", cmd.geturl())
+
+    """
     keys_name_handle = {
         'inputs': 'prompt',
     }
@@ -74,11 +111,33 @@ class Mindie(LazyLLMDeployBase):
             shutil.copy2(self.backup_path, self.mindie_config_path)
 
     def load_config(self, config_path):
+        """加载并解析MindIE配置文件。
+
+Args:
+    config_path (str): JSON配置文件的路径
+
+**Returns:**
+
+- dict: 解析后的配置字典
+
+注意事项:
+    - 处理默认和自定义配置文件
+    - 使用JSON格式配置
+    - 修改前会创建原始配置的备份
+"""
         with open(config_path, 'r') as file:
             config_dict = json.load(file)
         return config_dict
 
     def save_config(self):
+        """保存当前配置到文件。
+
+注意事项:
+    - 自动创建现有配置的备份
+    - 写入到标准MindIE配置位置
+    - 使用带缩进的JSON格式
+    - 部署时自动调用
+"""
         if os.path.isfile(self.mindie_config_path):
             shutil.copy2(self.mindie_config_path, self.backup_path)
 
@@ -86,6 +145,14 @@ class Mindie(LazyLLMDeployBase):
             json.dump(self.config_dict, file)
 
     def update_config(self):
+        """使用当前设置更新配置字典。
+
+注意事项:
+    - 处理多个配置部分:
+        - 模型部署参数
+        - 服务器设置
+        - 调度参数
+"""
         backend_config = self.config_dict['BackendConfig']
         backend_config['npuDeviceIds'] = self.kw['npuDeviceIds']
         model_config = {
@@ -104,6 +171,22 @@ class Mindie(LazyLLMDeployBase):
         self.config_dict['ServerConfig']['port'] = self.kw['port']
 
     def cmd(self, finetuned_model=None, base_model=None, master_ip=None):
+        """生成启动MindIE服务的命令。
+
+Args:
+    finetuned_model (str): 微调模型路径
+    base_model (str): 基础模型路径(当微调模型无效时作为后备)
+    master_ip (str): 主节点IP地址(当前未使用)
+
+**Returns:**
+
+- LazyLLMCMD: 启动服务的命令对象
+
+注意事项:
+    - 自动处理模型路径验证
+    - 启动服务前更新配置
+    - 支持配置随机端口分配
+"""
         if self.custom_config is None:
             self.finetuned_model = finetuned_model
             if finetuned_model or base_model:
@@ -130,6 +213,19 @@ class Mindie(LazyLLMDeployBase):
         return LazyLLMCMD(cmd=impl, return_value=self.geturl, checkf=verify_fastapi_func)
 
     def geturl(self, job=None):
+        """获取部署后的服务URL。
+
+Args:
+    job: 任务对象(可选，默认为self.job)
+
+**Returns:**
+
+- str: generate接口的URL
+
+注意事项:
+    - 根据显示模式返回不同格式
+    - 包含配置中的端口号
+"""
         if job is None:
             job = self.job
         if lazyllm.config['mode'] == lazyllm.Mode.Display:
@@ -140,4 +236,18 @@ class Mindie(LazyLLMDeployBase):
 
     @staticmethod
     def extract_result(x, inputs):
+        """从API响应中提取生成的文本。
+
+Args:
+    x: 原始API响应
+    inputs: 原始输入(未使用)
+
+**Returns:**
+
+- str: 生成的文本
+
+注意事项:
+    - 解析JSON响应
+    - 返回响应中的第一个文本条目
+"""
         return json.loads(x)['text'][0]

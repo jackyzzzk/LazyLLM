@@ -63,6 +63,20 @@ class _ClientPool:
 
 
 class OceanBaseStore(LazyLLMStoreBase):
+    """OceanBase 存储类，用于存储和检索文档节点。
+
+Args:
+    uri (str): OceanBase 数据库的 URI。
+    user (str): OceanBase 数据库的用户名。
+    password (str): OceanBase 数据库的密码。
+    db_name (str): OceanBase 数据库的名称。
+    drop_old (bool): 是否删除旧的表。
+    index_kwargs (List[dict]): 索引配置列表。
+    client_kwargs (Dict): 客户端配置字典。
+    max_pool_size (int): 最大连接池大小。
+    normalize (bool): 是否规范化数据。
+    enable_fulltext_index (bool): 是否启用全文索引。
+"""
     capability = StoreCapability.ALL
     need_embedding = True
     supports_index_registration = True
@@ -117,6 +131,14 @@ class OceanBaseStore(LazyLLMStoreBase):
     def connect(self, embed_dims: Optional[Dict[str, int]] = None,
                 embed_datatypes: Optional[Dict[str, DataType]] = None,
                 global_metadata_desc: Optional[Dict[str, GlobalMetadataDesc]] = None, **kwargs):
+        """连接到底层的 OceanBase 数据库。
+
+Args:
+    embed_dims (Dict[str, int]): 嵌入维度字典。
+    embed_datatypes (Dict[str, DataType]): 嵌入数据类型字典。
+    global_metadata_desc (Dict[str, GlobalMetadataDesc]): 全局元数据描述字典。
+    **kwargs: 其他参数。
+"""
         self._embed_dims = embed_dims or {}
         self._embed_datatypes = embed_datatypes or {}
         self._global_metadata_desc = global_metadata_desc or {}
@@ -134,6 +156,18 @@ class OceanBaseStore(LazyLLMStoreBase):
         LOG.info('[OceanBaseStore] init success!')
 
     def upsert(self, collection_name: str, data: List[dict], range_part: Optional['pyobvector.RangeListPartInfo'] = None, **kwargs) -> bool:  # noqa: C901 E501
+        """向存储中插入或更新数据。
+
+Args:
+    collection_name (str): 集合名称。
+    data (List[dict]): 要插入或更新的数据列表，每个数据项都是一个字典。
+    range_part (Optional[RangeListPartInfo]): 范围分区信息，暂未实现分区功能。
+    **kwargs: 其他参数。
+
+**Returns:**
+
+- bool: 操作成功返回True，否则返回False。
+"""
         try:
             if not data:
                 return True
@@ -210,6 +244,17 @@ class OceanBaseStore(LazyLLMStoreBase):
 
     @override
     def delete(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> bool:
+        """从存储中删除数据。
+
+Args:
+    collection_name (str): 集合名称。
+    criteria (Optional[dict]): 删除条件，默认为None。
+    **kwargs: 其他参数。
+
+**Returns:**
+
+- bool: 操作成功返回True，否则返回False。
+"""
         try:
             with self._client_context() as client:
                 if not client.check_table_exists(collection_name):
@@ -236,6 +281,17 @@ class OceanBaseStore(LazyLLMStoreBase):
 
     @override
     def get(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> List[dict]:
+        """从存储中获取数据。
+
+Args:
+    collection_name (str): 集合名称。
+    criteria (Optional[dict]): 查询条件，默认为None。
+    **kwargs: 其他参数。
+
+**Returns:**
+
+- List[dict]: 返回符合条件的数据列表。
+"""
         try:
             with self._client_context() as client:
                 if not client.check_table_exists(collection_name):
@@ -305,6 +361,21 @@ class OceanBaseStore(LazyLLMStoreBase):
         return all_results
 
     def search(self, collection_name: str, query: str, query_embedding: Union[dict, List[float]], topk: int, filters: Optional[Dict[str, Union[List, set]]] = None, embed_key: Optional[str] = None, filter_str: Optional[str] = '', **kwargs) -> List[dict]:  # noqa: C901 E501
+        """在存储中搜索数据。
+
+Args:
+    collection_name (str): 集合名称。
+    query_embedding (Union[dict, List[float]]): 查询的向量表示。
+    topk (int): 返回的最大结果数量。
+    filters (Optional[Dict[str, Union[str, int, List, Set]]]): 过滤条件，默认为None。
+    embed_key (Optional[str]): 嵌入向量的键名，默认为None。
+    filter_str (Optional[str]): 过滤条件字符串，默认为None。
+    **kwargs: 其他参数。
+
+**Returns:**
+
+- List[dict]: 返回搜索结果列表。
+"""
         if not query_embedding:
             raise NotImplementedError('Query fulltext search is not supported for now')
         try:
