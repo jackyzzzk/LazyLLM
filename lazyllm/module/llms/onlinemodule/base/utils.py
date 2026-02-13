@@ -34,6 +34,24 @@ def check_and_add_config(key, description):
 
 
 class LazyLLMOnlineBase(ModuleBase, metaclass=LazyLLMRegisterMetaClass):
+    """LazyLLM 在线模块基类，继承自 ModuleBase，并使用 LazyLLMRegisterMetaClass， 为所有在线服务模块提供统一的基础功能。  
+该类封装了在线模块的通用行为，包括缓存机制和调试追踪功能，是构建各种在线API服务模块的基础类。
+
+功能特性:
+    - 继承 ModuleBase 的所有基础功能，包括子模块管理、钩子注册等。
+    - 支持在线模块缓存机制，可通过配置控制是否启用缓存。
+    - 提供调试追踪功能，便于问题排查和性能分析。
+    - 作为所有在线服务模块（如聊天、嵌入、多模态等）的公共基类。
+
+Args:
+    return_trace (bool): 是否将推理结果写入 trace 队列，用于调试和追踪。默认为 ``False``。
+
+使用场景:
+    1. 作为在线聊天模块（OnlineChatModuleBase）的基类。
+    2. 作为在线嵌入模块（OnlineEmbeddingModuleBase）的基类。
+    3. 作为在线多模态模块（OnlineMultiModalBase）的基类。
+    4. 为自定义在线服务模块提供统一的基础功能。
+"""
     _model_series = None
 
     def __init__(self, api_key: Optional[Union[str, List[str]]],

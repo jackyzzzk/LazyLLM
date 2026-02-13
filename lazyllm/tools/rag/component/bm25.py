@@ -5,7 +5,14 @@ from .stopwords import STOPWORDS_CHINESE
 
 
 class BM25:
-    '''A BM25 retriever that uses the BM25 algorithm to retrieve nodes.'''
+    """基于 BM25 算法实现的检索器，用于从节点集合中根据查询词检索最相关的文本节点。
+
+Args:
+    nodes (List[DocNode]): 需要建立索引的文本节点列表。
+    language (str): 所使用的语言，支持 ``en``（英文）或 ``zh``（中文）。默认为 ``en``。
+    topk (int): 每次检索返回的最大节点数量，默认值为2。
+    **kwargs: 其他参数。
+"""
 
     def __init__(
         self,
@@ -35,6 +42,15 @@ class BM25:
         self.bm25.index(corpus_tokens)
 
     def retrieve(self, query: str, topk: Optional[int] = None) -> List[Tuple[DocNode, float]]:
+        """使用BM25算法检索与查询最相关的文档节点。
+
+Args:
+    query (str): 查询文本。
+
+**Returns:**
+
+- List[Tuple[DocNode, float]]: 返回一个列表，每个元素为(文档节点, 相关度分数)的元组。
+"""
         if topk is None:
             topk = self.topk
         else:

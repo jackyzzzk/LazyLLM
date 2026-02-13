@@ -1478,7 +1478,7 @@ Args:
 add_chinese_doc('OnlineModule', '''\
 在线模型基类，用来管理创建目前市面上公开的在线模型推理服务，包括LLM模块、Embedding模块以及多模态模块。
 根据用户指定的在线模型类型和模型名自动创建对应的模块实例，目前支持的实例类型包括OnlineChatModule, OnlineEmbeddingModule和OnlineMultiModalModule。
-                
+
 Args:
     type (Optional[str]): 指定在线模型服务的类型，如果不指定则默认为 ``llm``。目前支持 ``llm`` / ``vlm`` / ``embed`` / ``cross_modal_embed`` / ``rerank`` / ``stt`` / ``tts`` / ``sd`` 这几类。
     model (Optional[str]): 指定要加载的模型名称，例如 ``internlm2-chat-7b``，可为空。为空时默认加载 ``internlm2-chat-7b``。
@@ -1490,7 +1490,7 @@ Args:
 add_english_doc('OnlineModule', '''\
 Base class for online models that orchestrates creation of publicly available online inference services, covering LLM, embedding, and multimodal modules.  
 Automatically creates the proper module instance according to the requested model type and model name. Supported module classes currently include OnlineChatModule, OnlineEmbeddingModule, and OnlineMultiModalModule.
-                
+
 Args:
     type (Optional[str]): Category of the online service. Defaults to ``llm``. Supported options include ``llm`` / ``vlm`` / ``embed`` / ``cross_modal_embed`` / ``rerank`` / ``stt`` / ``tts`` / ``sd``.
     model (Optional[str]): Model to load, e.g., ``internlm2-chat-7b``. Defaults to ``internlm2-chat-7b`` when omitted.

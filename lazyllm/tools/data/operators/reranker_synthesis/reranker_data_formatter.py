@@ -14,13 +14,39 @@ else:
     reranker = data_register.new_group('reranker')
 
 
-@data_register('data.reranker', rewrite_func='forward', _concurrency_mode='process')
+@data_register('data.reranker', rewrite_func='forward', _concurrency_mode='thread')
 def validate_reranker_data(
     data: dict,
     input_query_key: str = 'query',
     input_pos_key: str = 'pos',
     input_neg_key: str = 'neg',
 ) -> dict:
+    """验证重排序数据的函数。
+
+该函数验证输入数据是否包含必要的字段（query、正样本），并确保正样本和负样本为列表格式。
+
+Args:
+    data (dict): 输入数据，应包含 query、pos 和 neg 字段。
+    input_query_key (str): 查询字段名，默认为 'query'。
+    input_pos_key (str): 正样本字段名，默认为 'pos'。
+    input_neg_key (str): 负样本字段名，默认为 'neg'。
+
+Returns:
+    dict: 验证后的数据，包含：
+    - _is_valid: 数据是否有效
+    - _error: 错误信息（如果无效）
+    - _query, _pos, _neg: 标准化后的字段值
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data.operators.reranker_synthesis.reranker_data_formatter import validate_reranker_data
+
+    data = {'query': 'machine learning', 'pos': ['ML tutorial'], 'neg': ['cooking recipe']}
+    result = validate_reranker_data(data)
+    # Returns: {'query': '...', 'pos': [...], 'neg': [...], '_is_valid': True, '_query': 'machine learning', '_pos': ['ML tutorial'], '_neg': ['cooking recipe']}
+    ```
+    """
     query = data.get(input_query_key, '')
     pos = data.get(input_pos_key, [])
 
@@ -48,8 +74,32 @@ def validate_reranker_data(
 
 
 class RerankerFormatFlagReranker(reranker):
+    """FlagReranker格式转换算子。
+
+该算子将验证后的数据转换为FlagReranker训练格式。确保负样本数量符合训练组大小要求，
+如果负样本不足会复制填充，如果过多会截断。
+
+Args:
+    train_group_size (int): 训练组大小（包含1个正样本），默认为 8。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 转换后的数据列表，每个包含 query、pos 和 neg 字段。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    formatter = reranker.RerankerFormatFlagReranker(train_group_size=8)
+
+    data = {'_is_valid': True, '_query': 'machine learning', '_pos': ['ML tutorial'], '_neg': ['cooking', 'history']}
+    result = formatter(data)
+    # Returns: [{'query': 'machine learning', 'pos': ['ML tutorial'], 'neg': ['cooking', 'history', ...]}]
+    ```
+    """
     def __init__(self, train_group_size: int = 8, **kwargs):
-        super().__init__(_concurrency_mode='process', **kwargs)
+        super().__init__(_concurrency_mode='thread', **kwargs)
         self.train_group_size = train_group_size
 
     def forward(self, data: dict, **kwargs) -> List[dict]:
@@ -76,8 +126,31 @@ class RerankerFormatFlagReranker(reranker):
 
 
 class RerankerFormatCrossEncoder(reranker):
+    """CrossEncoder格式转换算子。
+
+该算子将验证后的数据转换为CrossEncoder训练格式。每个查询-文档对作为一个独立样本，
+正样本标记为1，负样本标记为0。
+
+Args:
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 转换后的数据列表，每个包含 query、document 和 label 字段。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    formatter = reranker.RerankerFormatCrossEncoder()
+
+    data = {'_is_valid': True, '_query': 'machine learning', '_pos': ['ML tutorial'], '_neg': ['cooking']}
+    result = formatter(data)
+    # Returns: [{'query': 'machine learning', 'document': 'ML tutorial', 'label': 1}, {'query': 'machine learning', 'document': 'cooking', 'label': 0}]
+    ```
+    """
     def __init__(self, **kwargs):
-        super().__init__(_concurrency_mode='process', **kwargs)
+        super().__init__(_concurrency_mode='thread', **kwargs)
 
     def forward(self, data: dict, **kwargs) -> List[dict]:
         if not data.get('_is_valid'):
@@ -101,8 +174,31 @@ class RerankerFormatCrossEncoder(reranker):
 
 
 class RerankerFormatPairwise(reranker):
+    """Pairwise格式转换算子。
+
+该算子将验证后的数据转换为Pairwise训练格式。创建正样本和负样本的成对组合，
+用于训练排序模型区分相关和不相关文档。
+
+Args:
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 转换后的数据列表，每个包含 query、doc_pos 和 doc_neg 字段。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    formatter = reranker.RerankerFormatPairwise()
+
+    data = {'_is_valid': True, '_query': 'machine learning', '_pos': ['ML tutorial'], '_neg': ['cooking']}
+    result = formatter(data)
+    # Returns: [{'query': 'machine learning', 'doc_pos': 'ML tutorial', 'doc_neg': 'cooking'}]
+    ```
+    """
     def __init__(self, **kwargs):
-        super().__init__(_concurrency_mode='process', **kwargs)
+        super().__init__(_concurrency_mode='thread', **kwargs)
 
     def forward(self, data: dict, **kwargs) -> List[dict]:
         if not data.get('_is_valid'):
@@ -122,6 +218,41 @@ class RerankerFormatPairwise(reranker):
         return results
 
 class RerankerTrainTestSplitter(reranker):
+    """重排序训练集/测试集分割算子。
+
+该算子将数据集随机分割为训练集和测试集，支持指定分割比例和随机种子。
+可以保存训练集和测试集到指定文件，测试集会转换格式以兼容评估需求。
+
+Args:
+    test_size (float): 测试集比例，默认为 0.1（即10%）。
+    seed (int): 随机种子，用于可复现的分割，默认为 42。
+    train_output_file (str, optional): 训练集输出文件路径，默认为 None。
+    test_output_file (str, optional): 测试集输出文件路径，默认为 None。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 分割后的数据列表，每个样本包含 split 字段标记所属集合（'train' 或 'test'）。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    splitter = reranker.RerankerTrainTestSplitter(
+        test_size=0.2,
+        seed=123,
+        train_output_file='train.jsonl',
+        test_output_file='test.jsonl'
+    )
+
+    data = [
+        {'query': 'q1', 'pos': ['p1'], 'neg': ['n1']},
+        {'query': 'q2', 'pos': ['p2'], 'neg': ['n2']}
+    ]
+    result = splitter(data)
+    # Returns: [{'query': 'q1', 'pos': ['p1'], 'neg': ['n1'], 'split': 'train'}, {'query': 'q2', 'pos': ['p2'], 'neg': ['n2'], 'split': 'test'}]
+    ```
+    """
     def __init__(
             self,
             test_size: float = 0.1,

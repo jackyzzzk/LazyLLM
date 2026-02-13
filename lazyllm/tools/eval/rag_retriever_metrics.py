@@ -6,6 +6,33 @@ from .eval_base import BaseEvaluator
 
 
 class LLMContextRecall(BaseEvaluator):
+    """用于评估回答中的每一句话是否可以归因于检索到的上下文的指标类。
+
+该模块使用语言模型判断回答中的每个句子是否得到上下文的支持，通过二元值进行评分（1 表示支持，0 表示不支持或矛盾），最终计算平均回忆得分。
+
+Args:
+    llm (ModuleBase): 用于执行上下文一致性判断的语言模型。
+    eval_prompt (str, 可选): 指导模型评估的自定义提示词。
+    prompt_lang (str): 默认提示词语言，'en' 表示英文，'zh' 表示中文。
+    retry (int): 评估失败时的最大重试次数。
+    concurrency (int): 并发评估的任务数量。
+
+
+Examples:
+    >>> from lazyllm.components import LLMContextRecall
+    >>> evaluator = LLMContextRecall(llm=YourLLM(), prompt_lang="en")
+    >>> data = {
+    ...     "question": "What is Photosynthesis?",
+    ...     "answer": "Photosynthesis was discovered in the 1780s. It occurs in chloroplasts.",
+    ...     "context_retrieved": [
+    ...         "Photosynthesis occurs in chloroplasts.",
+    ...         "Light reactions produce ATP using sunlight."
+    ...     ]
+    ... }
+    >>> result = evaluator([data])
+    >>> print(result)
+    ... 0.5  # Final recall score averaged over statement evaluations
+    """
     _default_eval_prompt_en = (
         '[Task Description]\n'
         'Given a context, and an answer, analyze each sentence in the answer and '
@@ -84,6 +111,33 @@ class LLMContextRecall(BaseEvaluator):
         return res
 
 class NonLLMContextRecall(BaseEvaluator):
+    """基于字符串模糊匹配的非LLM上下文回忆指标类。
+
+该模块通过 Levenshtein 距离计算检索到的上下文与参考上下文的相似度，并给出回忆得分。可选择输出二值得分（是否存在足够相似的匹配）或平均匹配度得分。
+
+Args:
+    th (float): 相似度阈值（范围为0到1），值越高表示匹配越严格。
+    binary (bool): 若为True，则只判断是否有任一匹配超过阈值；若为False，则输出所有匹配的平均得分。
+    retry (int): 失败时最大重试次数。
+    concurrency (int): 并发执行的任务数量。
+
+
+Examples:
+    >>> from lazyllm.components import NonLLMContextRecall
+    >>> evaluator = NonLLMContextRecall(th=0.8, binary=True)
+    >>> data = {
+    ...     "context_retrieved": [
+    ...         "Photosynthesis uses sunlight to produce sugar.",
+    ...         "It takes place in chloroplasts."
+    ...     ],
+    ...     "context_reference": [
+    ...         "Photosynthesis occurs in chloroplasts."
+    ...     ]
+    ... }
+    >>> result = evaluator([data])
+    >>> print(result)
+    ... 1.0  # At least one retrieved context is similar enough
+    """
     def __init__(self, th=0.5, binary=True, retry=3, concurrency=1):
         super().__init__(concurrency, retry)
         self._binary = binary
@@ -122,6 +176,31 @@ class NonLLMContextRecall(BaseEvaluator):
         return res
 
 class ContextRelevance(BaseEvaluator):
+    """基于句子级匹配的非LLM上下文相关性评估器。
+
+该模块将检索到的上下文与参考上下文分别按句子划分，并统计检索内容中与参考完全一致的句子数量，从而计算相关性得分。
+
+Args:
+    splitter (str): 句子分隔符，默认为中文句号 "。"，英文可设置为 "."。
+    retry (int): 失败时最大重试次数。
+    concurrency (int): 并发执行的任务数量。
+
+
+Examples:
+    >>> from lazyllm.components import ContextRelevance
+    >>> evaluator = ContextRelevance(splitter='.')
+    >>> data = {
+    ...     "context_retrieved": [
+    ...         "Photosynthesis occurs in chloroplasts. It produces glucose."
+    ...     ],
+    ...     "context_reference": [
+    ...         "Photosynthesis occurs in chloroplasts. It requires sunlight. It produces glucose."
+    ...     ]
+    ... }
+    >>> result = evaluator([data])
+    >>> print(result)
+    ... 0.6667  # 2 of 3 retrieved sentences match
+    """
     def __init__(self, splitter='。', retry=3, concurrency=1):
         super().__init__(concurrency, retry)
         self._splitter = splitter

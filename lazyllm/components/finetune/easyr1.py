@@ -12,6 +12,41 @@ from .base import LazyLLMFinetuneBase
 
 
 class EasyR1Finetune(LazyLLMFinetuneBase):
+    """此类是 ``LazyLLMFinetuneBase`` 的子类，基于 [EasyR1](https://github.com/hiyouga/EasyR1) 框架提供的强化学习的能力，用于对大语言模型进行强化学习训练。
+
+Args:
+    base_model: 用于进行训练的基模型路径。支持本地路径，若路径不存在则尝试从配置的模型路径中查找。
+    target_path: 训练完成后，模型权重保存的目标路径。
+    merge_path (str, optional): 同 ``target_path``，不需要配置。
+    launcher (lazyllm.launcher, optional): 训练任务的启动器，默认为``None``, 使用单卡同步远程启动器 ``launchers.remote(ngpus=1, sync=True)``。
+    **kw: 关键字参数，用于动态覆盖默认训练配置中的参数。
+
+此类的关键字参数及其默认值如下：
+
+Keyword Args:
+    data.max_prompt_length (int): 默认值是：``2048``。用于限定输入 prompt 的最大 token 长度，超出会根据实现截断或丢弃多余 tokens。
+    data.max_response_length (int): 默认值是：``2048``。模型生成时允许的最大响应长度（token 数）。
+    data.rollout_batch_size (int): 默认值是：``128``。rollout（策略采样/生成）时的 batch 大小，增大可提高吞吐但占用更多显存。
+    data.val_batch_size (int): 默认值是：``1024``。验证/评估阶段的 batch 大小，通常可设大以提高评估效率，但受显存限制。
+    data.format_prompt (typing.Optional[typing.Union[str, callable]]): 默认值是：``None``。用于将原始样本格式化为模型输入 prompt 的模板或函数。为 ``None`` 时使用框架/数据集默认格式化逻辑。
+    worker.actor.global_batch_size (int): 默认值是：``128``。actor（用于生成与训练的组件）的一次更新对应的全局 batch 大小。
+    worker.actor.micro_batch_size_per_device_for_update (int): 默认值是：``4``。训练更新（反向传播）阶段每个设备上的微批大小，用于计算梯度累积步数。
+    worker.actor.micro_batch_size_per_device_for_experience (int): 默认值是：``16``。生成经验（rollout）阶段每个设备上的微批大小，通常大于更新阶段以提高采样吞吐。
+    worker.rollout.gpu_memory_utilization (float): 默认值是：``0.6``。控制 rollout 阶段每张 GPU 可用显存比例，框架会据此估算可用 batch/并行度以避免 OOM。
+    worker.rollout.tensor_parallel_size (int): 默认值是：``1``。rollout/采样阶段使用的 tensor 并行度大小，>1 时启用张量并行以分摊显存与计算。
+    worker.reward.reward_function (typing.Optional[typing.Union[str, callable]]): 默认值是：``None``。用于计算 reward 的函数或可识别标识。函数原型通常为 func(samples) -> rewards。自定义 reward 函数须高效且可序列化（或可在子进程/远程环境中调用），以免成为训练瓶颈。
+    trainer.total_epochs (int): 默认值是：``2``。训练的总轮次。对于强化学习微调场景通常不需很大轮次，可通过 rollout 次数与 batch 调整训练强度。
+    trainer.n_gpus_per_node (int): 默认值是：``1``。每个节点上用于训练的 GPU 数量。
+    trainer.save_freq (int): 默认值是：``5``。以 epoch 为单位的 checkpoint 保存频率。设置为 0 或负值的行为由实现决定（可能只在结束时保存）。
+    trainer.save_checkpoint_path (typing.Optional[str]): 默认值是：``None``。指定 checkpoint 的保存路径，若 ``None`` 则使用 ``target_path`` 或框架默认路径。
+    trainer.save_model_only (bool): 默认值是：``False``。是否仅保存模型权重而不保存优化器/调度器等训练状态。
+
+
+Examples:
+    >>> from lazyllm import finetune
+    >>> finetune.easyr1('qwen2-0.5b-instruct', 'path/to/target')
+    <lazyllm.llm.finetune type=EasyR1Finetune>
+    """
     defatult_kw = ArgsDict({
         'data.max_prompt_length': 2048,
         'data.max_response_length': 2048,
@@ -54,6 +89,18 @@ class EasyR1Finetune(LazyLLMFinetuneBase):
         self.kw.check_and_update(kw)
 
     def cmd(self, trainset, valset=None) -> str:
+        """生成EasyR1训练命令序列。
+
+Args:
+    trainset (str): 训练数据集路径(支持相对lazyllm.config['data_path']的路径)
+    valset (str, optional): 验证数据集路径
+
+**Returns:**
+
+- str: 完整的shell命令字符串，包含:
+    - 训练命令(自动配置参数)
+    - 日志重定向(保存到目标路径)
+"""
         thirdparty.check_packages(['verl', 'trl'])
         if not os.path.exists(trainset):
             defatult_path = os.path.join(lazyllm.config['data_path'], trainset)

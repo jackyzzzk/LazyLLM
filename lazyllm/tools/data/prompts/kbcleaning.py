@@ -1,18 +1,12 @@
-'''Prompts for knowledge cleaning pipeline operators'''
 from .base_prompt import PromptABC
 
 
 class KnowledgeCleanerPrompt(PromptABC):
-    '''
-    知识清洗提示词生成器，支持中英文多语言适配
-    Specialized in refining raw content with multilingual support.
-    '''
     def __init__(self, lang: str = 'en', strict_mode: bool = True):
         self.lang = lang
         self.strict_mode = strict_mode
 
     def build_prompt(self, raw_content: str) -> str:
-        '''生成知识清洗的思维链提示词'''
         if self.lang == 'en':
             self.prompt_header = f'''
 You are a meticulous Knowledge Refinement Engineer. Apply these rules STRICTLY:
@@ -125,7 +119,6 @@ Processing Steps:
 
 
 class MathbookQuestionExtractPrompt(PromptABC):
-    '''Prompt for extracting questions from math textbook images.'''
     def __init__(self):
         pass
 

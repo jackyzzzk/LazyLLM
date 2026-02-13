@@ -52,6 +52,31 @@ def build_embedding_corpus(
     corpus: Optional[List[str]] = None,
     corpus_dir: Optional[str] = None,
 ) -> List[dict]:
+    """构建 Embedding 训练所需的语料库。
+
+该函数从输入数据中提取正样本和语料字段，构建一个唯一的语料库，并将其保存到文件中。
+支持使用外部语料库，如果提供了 corpus 参数，则直接使用外部语料库。
+
+Args:
+    inputs (List[dict]): 输入数据列表，每条数据应包含正样本和可选的语料字段。
+    input_pos_key (str): 正样本字段名，默认为 'pos'。
+    corpus_key (str): 语料字段名，默认为 'passage'。
+    corpus (List[str], optional): 外部语料库，如果提供则直接使用。默认为 None。
+    corpus_dir (str, optional): 语料库保存目录，默认为临时目录。
+
+Returns:
+    List[dict]: 原始输入数据，每条数据添加了 '_corpus' 字段指向语料库文件路径。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data.operators.embedding_synthesis.embedding_hard_negative_miner import build_embedding_corpus
+
+    data = [{'query': 'machine learning', 'pos': ['ML tutorial', 'deep learning']}, {'query': 'cooking', 'pos': ['recipe']}]
+    result = build_embedding_corpus(data, input_pos_key='pos')
+    # Returns data with '_corpus' field pointing to corpus file containing unique passages
+    ```
+    """
     # Use external corpus if provided, otherwise build from inputs
     if corpus is None:
         all_passages = []
@@ -84,6 +109,29 @@ def build_embedding_corpus(
 
 
 class EmbeddingInitBM25(embedding):
+    """初始化 BM25 索引的算子。
+
+该算子基于语料库构建 BM25 索引，用于后续的关键词检索和困难负样本挖掘。
+支持中英文分词，使用 jieba 进行中文分词，Stemmer 进行英文词干提取。
+
+Args:
+    language (str): 语言类型，'zh' 表示中文，'en' 表示英文，默认为 'zh'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 输入数据，每条数据添加了 BM25 索引和相关配置信息。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    # First build corpus, then initialize BM25
+    corpus_op = embedding.build_embedding_corpus(input_pos_key='pos')
+    bm25_op = embedding.EmbeddingInitBM25(language='zh')
+    # Returns data with '_bm25' index and tokenizer configuration
+    ```
+    """
 
     def __init__(self, language: str = 'zh', **kwargs):
         super().__init__(rewrite_func='forward_batch_input', **kwargs)
@@ -152,6 +200,29 @@ class EmbeddingInitBM25(embedding):
 
 
 class EmbeddingInitSemantic(embedding):
+    """初始化语义嵌入向量的算子。
+
+该算子使用 Embedding 服务计算语料库中所有文档的向量表示，并保存到文件中。
+用于后续的语义相似度计算和困难负样本挖掘。
+
+Args:
+    embedding_serving (Callable): Embedding 服务调用函数，用于计算文本向量。
+    embeddings_dir (str, optional): 向量文件保存目录，默认为语料库所在目录。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 输入数据，每条数据添加了语义向量文件路径和语料库信息。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    # Assuming my_embedding_fn is an embedding service
+    semantic_op = embedding.EmbeddingInitSemantic(embedding_serving=my_embedding_fn)
+    # Returns data with '_semantic_embeddings_path' pointing to saved embeddings
+    ```
+    """
 
     def __init__(
         self,
@@ -225,7 +296,7 @@ class EmbeddingInitSemantic(embedding):
         ]
 
 
-@data_register('data.embedding', rewrite_func='forward', _concurrency_mode='process')
+@data_register('data.embedding', rewrite_func='forward', _concurrency_mode='thread')
 def mine_bm25_negatives(
     data: dict,
     num_negatives: int = 7,
@@ -233,6 +304,32 @@ def mine_bm25_negatives(
     input_pos_key: str = 'pos',
     output_neg_key: str = 'neg',
 ) -> dict:
+    """使用 BM25 算法挖掘困难负样本的函数。
+
+该函数基于 BM25 索引，检索与查询最相关但不属于正样本的文档作为负样本。
+适用于挖掘与查询有词汇重叠但语义不同的困难负样本。
+
+Args:
+    data (dict): 单条输入数据，应包含 query、pos 和 BM25 索引信息。
+    num_negatives (int): 需要挖掘的负样本数量，默认为 7。
+    input_query_key (str): 查询字段名，默认为 'query'。
+    input_pos_key (str): 正样本字段名，默认为 'pos'。
+    output_neg_key (str): 负样本输出字段名，默认为 'neg'。
+
+Returns:
+    dict: 输入数据，添加了挖掘到的负样本列表。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data.operators.embedding_synthesis.embedding_hard_negative_miner import mine_bm25_negatives
+
+    # After building corpus and initializing BM25
+    data = {'query': 'machine learning', 'pos': ['ML tutorial'], '_bm25': bm25_index, '_bm25_corpus': corpus}
+    result = mine_bm25_negatives(data, num_negatives=5)
+    # Returns data with 'neg' field containing BM25-mined negative samples
+    ```
+    """
     bm25_index = data.get('_bm25')
     corpus = data.get('_bm25_corpus') or []
     tokenizer = data.get('_bm25_tokenizer', lambda t: t)
@@ -276,7 +373,11 @@ def mine_bm25_negatives(
             if len(negatives) >= num_negatives:
                 break
 
-    return {**data, output_neg_key: negatives}
+    result = {k: v for k, v in data.items() if k not in (
+        '_bm25', '_bm25_corpus', '_bm25_tokenizer', '_bm25_stopwords', '_bm25_stemmer'
+    )}
+    result[output_neg_key] = negatives
+    return result
 
 
 @data_register('data.embedding', rewrite_func='forward', _concurrency_mode='process')
@@ -288,6 +389,32 @@ def mine_random_negatives(
     input_pos_key: str = 'pos',
     output_neg_key: str = 'neg',
 ) -> dict:
+    """随机挖掘负样本的函数。
+
+该函数从语料库中随机选择不属于正样本的文档作为负样本。
+适用于基线对比或需要随机负样本的场景。
+
+Args:
+    data (dict): 单条输入数据，应包含 query、pos 和语料库信息。
+    num_negatives (int): 需要挖掘的负样本数量，默认为 7。
+    seed (int): 随机种子，用于可复现的随机选择，默认为 42。
+    input_query_key (str): 查询字段名，默认为 'query'。
+    input_pos_key (str): 正样本字段名，默认为 'pos'。
+    output_neg_key (str): 负样本输出字段名，默认为 'neg'。
+
+Returns:
+    dict: 输入数据，添加了随机选择的负样本列表。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data.operators.embedding_synthesis.embedding_hard_negative_miner import mine_random_negatives
+
+    data = {'query': 'machine learning', 'pos': ['ML tutorial'], '_corpus': corpus_path}
+    result = mine_random_negatives(data, num_negatives=5, seed=123)
+    # Returns data with 'neg' field containing randomly selected negative samples
+    ```
+    """
     # Load corpus from file path
     corpus_path = data.get('_corpus', '')
     if isinstance(corpus_path, str) and corpus_path:
@@ -323,6 +450,31 @@ def mine_random_negatives(
 
 
 class EmbeddingMineSemanticNegatives(embedding):
+    """使用语义相似度挖掘困难负样本的算子。
+
+该算子基于语义向量相似度，找出与查询最相似但不属于正样本的文档作为负样本。
+适用于挖掘语义相近但实际不相关的困难负样本，通常比 BM25 方法效果更好。
+
+Args:
+    num_negatives (int): 需要挖掘的负样本数量，默认为 7。
+    embedding_serving (Callable): Embedding 服务调用函数，用于计算查询向量。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 输入数据，添加了基于语义相似度挖掘的负样本列表。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    # Assuming embeddings are initialized
+    semantic_miner = embedding.EmbeddingMineSemanticNegatives(num_negatives=5, embedding_serving=my_embedding_fn)
+    data = {'query': 'machine learning', 'pos': ['ML tutorial'], '_semantic_embeddings_path': emb_path, '_semantic_corpus': corpus}
+    result = semantic_miner(data)
+    # Returns data with 'neg' field containing semantically similar negative samples
+    ```
+    """
 
     def __init__(
         self,

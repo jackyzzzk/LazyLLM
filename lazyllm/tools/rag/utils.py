@@ -103,6 +103,24 @@ class DocPathParsingResult(BaseModel):
     is_new: bool = False
 
 class DocListManager(ABC):
+    """抽象基类，用于管理文档列表和监控文档目录变化。
+
+Args:
+    path:要监控的文档目录路径。
+    name:管理器名称。
+    enable_path_monitoring:启用路径监控。
+
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.rag.utils import DocListManager
+    >>> manager = DocListManager(path='your_file_path/', name="test_manager", enable_path_monitoring=False)
+    >>> added_docs = manager.add_files([test_file_list])
+    >>> manager.enable_path_monitoring(True)
+    >>> deleted = manager.delete_files([delete_file_list])
+    """
     DEFAULT_GROUP_NAME = '__default__'
     __pool__ = dict()
 
@@ -147,6 +165,8 @@ class DocListManager(ABC):
         return super().__new__(__class__.__pool__[config['default_dlmanager']])
 
     def init_tables(self) -> 'DocListManager':
+        """确保数据库表默认分组存在。
+"""
         if not self.table_inited():
             self._init_tables()
         # in case of using after relase
@@ -169,41 +189,161 @@ class DocListManager(ABC):
 
     # Actually it shoule be 'set_docs_status_deleting'
     def delete_files(self, file_ids: List[str]) -> List[DocPartRow]:
+        """将与文件关联的知识库条目设为删除中，并由各知识库进行异步删除解析结果及关联记录。
+
+Args:
+    file_ids (list of str): 要删除的文件ID列表
+"""
         document_list = self.update_file_status(file_ids, DocListManager.Status.deleting)
         self.update_kb_group(cond_file_ids=file_ids, new_status=DocListManager.Status.deleting)
         return document_list
 
     @abstractmethod
-    def table_inited(self): pass
+    def table_inited(self):
+        """检查数据库中的 `documents` 表是否已初始化。此方法在访问数据库时确保线程安全。
+判断数据库中是否存在 `documents` 表。
+
+**Returns:**
+
+- bool: 如果 `documents` 表存在，返回 `True`；否则返回 `False`。
+
+说明:
+    - 使用线程安全锁 (`self._db_lock`) 确保对数据库的安全访问。
+    - 通过 `self._db_path` 连接 SQLite 数据库，并使用 `check_same_thread` 配置选项。
+    - 执行 SQL 查询：`SELECT name FROM sqlite_master WHERE type='table' AND name='documents'` 来检查表是否存在。
+"""
+        pass
 
     @abstractmethod
     def _init_tables(self): pass
 
     @abstractmethod
-    def validate_paths(self, paths: List[str]) -> Tuple[bool, str, List[bool]]: pass
+    def validate_paths(self, paths: List[str]) -> Tuple[bool, str, List[bool]]:
+        """验证一组文件路径，以确保它们可以被正常处理。
+此方法检查提供的路径是否是新的、已处理的或当前正在处理的，并确保处理文档时不会发生冲突。
+
+Args:
+    paths (List[str]): 要验证的文件路径列表。
+
+**Returns:**
+
+- Tuple[bool, str, List[bool]]: 返回一个元组，包括：
+    - `bool`: 如果所有路径有效，则返回 `True`；否则返回 `False`。
+    - `str`: 表示成功或失败原因的消息。
+    - `List[bool]`: 一个布尔值列表，每个元素对应一个路径是否为新路径（`True` 表示新路径，`False` 表示已存在）。
+
+说明:
+    - 如果任何文档仍在处理中或需要重新解析，该方法会返回 `False`，并附带相应的错误消息。
+    - 方法通过数据库会话和线程安全锁 (`self._db_lock`) 检索文档状态信息。
+    - 不安全状态包括 `working` 和 `waiting`。
+
+"""
+        pass
 
     @abstractmethod
-    def update_need_reparsing(self, doc_id: str, need_reparse: bool): pass
+    def update_need_reparsing(self, doc_id: str, need_reparse: bool):
+        """更新 `KBGroupDocuments` 表中某个文档的 `need_reparse` 状态。
+此方法设置指定文档的 `need_reparse` 标志，并可选限定到特定分组。
+
+Args:
+    doc_id (str): 要更新的文档ID。
+    need_reparse (bool): `need_reparse` 标志的新值。
+
+说明:
+    - 使用线程安全锁 (`self._db_lock`) 确保数据库访问安全。
+    - 方法会立刻将更改提交到数据库。
+"""
+        pass
 
     @abstractmethod
     def list_files(self, limit: Optional[int] = None, details: bool = False,
                    status: Union[str, List[str]] = Status.all,
-                   exclude_status: Optional[Union[str, List[str]]] = None): pass
+                   exclude_status: Optional[Union[str, List[str]]] = None):
+        """从 `documents` 表中列出文件，并支持过滤、限制返回结果以及返回详细信息。
+此方法根据指定的条件，从数据库中检索文件ID或详细文件信息。
+
+Args:
+    limit (Optional[int]): 返回的最大文件数量。如果为 `None`，则返回所有匹配的文件。
+    details (bool): 是否返回详细的文件信息（`True`）或仅返回文件ID（`False`）。
+    status (Union[str, List[str]]): 要包含的状态或状态列表，默认为所有状态。
+    exclude_status (Optional[Union[str, List[str]]]): 要排除的状态或状态列表，默认为 `None`。
+
+**Returns:**
+
+- List: 如果 `details=False`，则返回文件ID列表；如果 `details=True`，则返回详细文件行的列表。
+
+说明:
+    - 该方法根据 `status` 和 `exclude_status` 条件动态构造查询。
+    - 使用线程安全锁 (`self._db_lock`) 确保数据库访问安全。
+    - 如果指定了 `limit`，查询会附加 `LIMIT` 子句。
+"""
+        pass
 
     @abstractmethod
-    def get_docs(self, doc_ids: List[str]) -> List[KBDocument]: pass
+    def get_docs(self, doc_ids: List[str]) -> List[KBDocument]:
+        """从数据库中检索类型为 `KBDocument` 的文档对象，基于提供的文档 ID 列表。
+
+Args:
+    doc_ids (List[str]): 要获取的文档 ID 列表。
+
+**Returns:**
+
+- List[KBDocument]: 与提供的文档 ID 对应的 `KBDocument` 对象列表。如果没有找到文档，将返回空列表。
+
+说明:
+    - 使用线程安全锁 (`self._db_lock`) 确保数据库访问的安全性。
+    - 查询使用 SQL 的 `IN` 子句，通过 `doc_id` 字段进行过滤。
+    - 如果 `doc_ids` 为空，函数将直接返回空列表，而不会查询数据库。
+"""
+        pass
 
     @abstractmethod
-    def set_docs_new_meta(self, doc_meta: Dict[str, dict]): pass
+    def set_docs_new_meta(self, doc_meta: Dict[str, dict]):
+        """批量更新文档的元数据。
+
+Args:
+    doc_meta (Dict[str, dict]): 文档ID到新元数据的映射字典。
+
+"""
+        pass
 
     @abstractmethod
-    def fetch_docs_changed_meta(self, group: str) -> List[DocMetaChangedRow]: pass
+    def fetch_docs_changed_meta(self, group: str) -> List[DocMetaChangedRow]:
+        """获取指定组中元数据已更改的文档，并将其 `new_meta` 字段重置为 `None`。
+此方法检索元数据已更改（即 `new_meta` 不为 `None`）的所有文档，基于提供的组名。检索后，会将这些文档的 `new_meta` 字段重置为 `None`。
+
+Args:
+    group (str): 用于过滤文档的组名。
+
+**Returns:**
+
+- List[DocMetaChangedRow]: 包含文档 `doc_id` 和 `new_meta` 字段的行列表，表示元数据已更改的文档。
+
+说明:
+    - 使用线程安全锁 (`self._db_lock`) 确保数据库访问安全。
+    - 方法通过 SQL `JOIN` 操作连接 `KBDocument` 和 `KBGroupDocuments` 表以检索相关行。
+    - 在获取数据后，将受影响行的 `new_meta` 字段更新为 `None`，并将更改提交到数据库。
+"""
+        pass
 
     @abstractmethod
-    def list_all_kb_group(self): pass
+    def list_all_kb_group(self):
+        """列出所有知识库分组的名称。
+
+**Returns:**
+
+- list: 知识库分组名称列表。
+"""
+        pass
 
     @abstractmethod
-    def add_kb_group(self, name): pass
+    def add_kb_group(self, name):
+        """添加一个新的知识库分组。
+
+Args:
+    name (str): 要添加的分组名称。
+"""
+        pass
 
     @abstractmethod
     def list_kb_group_files(self, group: str = None, limit: Optional[int] = None, details: bool = False,
@@ -211,7 +351,30 @@ class DocListManager(ABC):
                             exclude_status: Optional[Union[str, List[str]]] = None,
                             upload_status: Union[str, List[str]] = Status.all,
                             exclude_upload_status: Optional[Union[str, List[str]]] = None,
-                            need_reparse: Optional[bool] = False): pass
+                            need_reparse: Optional[bool] = False):
+        """列出指定知识库组中的文件。
+
+Args:
+    group (str): 用于过滤文件的 KB 组名。默认为 `None`。
+    limit (Optional[int]): 返回的最大文件数量。如果为 `None`，则返回所有匹配的文件。
+    details (bool): 返回详细的文件信息或仅返回文件 ID 和路径。
+    status (Union[str, List[str]]): 包含在结果中的 KB 组状态或状态列表。默认为所有状态。
+    exclude_status (Optional[Union[str, List[str]]): 从结果中排除的 KB 组状态或状态列表。默认为 `None`。
+    upload_status (Union[str, List[str]]): 包含在结果中的文档上传状态或状态列表。默认为所有状态。
+    exclude_upload_status (Optional[Union[str, List[str]]): 从结果中排除的文档上传状态或状态列表。默认为 `None`。
+    need_reparse (Optional[bool]): 过滤需要重新解析的文件或不需要重新解析的文件。默认为 `None`。
+
+**Returns:**
+
+- List: 如果 `details=False`，返回包含 `(doc_id, path)` 的元组列表。
+          如果 `details=True`，返回包含附加元数据的详细行列表。
+
+说明:
+    - 方法根据提供的过滤条件动态构建 SQL 查询。
+    - 使用线程安全锁 (`self._db_lock`) 确保多线程环境下的数据库访问安全。
+    - 如果 `status` 或 `upload_status` 参数为列表，则会使用 SQL 的 `IN` 子句进行处理。
+"""
+        pass
 
     def add_files(
         self,
@@ -220,6 +383,24 @@ class DocListManager(ABC):
         status: Optional[str] = Status.waiting,
         batch_size: int = 64,
     ) -> List[DocPartRow]:
+        """批量向文档列表中添加文件，可选附加元数据、状态，并支持分批处理。
+此方法将文件列表添加到数据库中，并为每个文件设置可选的元数据和初始状态。文件会以批量方式处理以提高效率。在文件添加完成后，它们会自动关联到默认的知识库 (KB) 组。
+
+Args:
+    files (List[str]): 添加的文件路径列表。
+    metadatas (Optional[List[Dict[str, Any]]]): 与文件对应的元数据字典列表。默认为 `None`。
+    status (Optional[str]): 添加文件的初始状态。默认为 `Status.waiting`。
+    batch_size (int): 每批处理的文件数量。默认为 64。
+
+**Returns:**
+
+- List[DocPartRow]: 包含已添加文件及其相关信息的 `DocPartRow` 对象列表。
+
+说明:
+    - 方法首先通过辅助函数 `_add_doc_records` 创建文档记录。
+    - 文件添加后，会自动关联到默认的知识库组 (`DocListManager.DEFAULT_GROUP_NAME`)。
+    - 批量处理确保在添加大量文件时具有良好的可扩展性。
+"""
         documents = self._add_doc_records(files, metadatas, status, batch_size)
         if documents:
             self.add_files_to_kb_group([doc.doc_id for doc in documents], group=DocListManager.DEFAULT_GROUP_NAME)
@@ -236,44 +417,160 @@ class DocListManager(ABC):
                          status: Optional[str] = Status.waiting, batch_size: int = 64) -> List[DocPartRow]: pass
 
     @abstractmethod
-    def delete_unreferenced_doc(self): pass
+    def delete_unreferenced_doc(self):
+        """删除数据库中标记为 "删除中" 且不再被引用的文档。
+此方法从数据库中删除满足以下条件的文档：
+    1. 文档状态为 `DocListManager.Status.deleting`。
+    2. 文档的引用计数 (`count`) 为 0。
+"""
+        pass
 
     @abstractmethod
-    def get_docs_need_reparse(self, group: Optional[str] = None) -> List[KBDocument]: pass
+    def get_docs_need_reparse(self, group: Optional[str] = None) -> List[KBDocument]:
+        """获取需要重新解析 (`need_reparse=True`)的指定组中的文档。
+此方法检索标记为需要重新解析 (`need_reparse=True`) 的文档，基于提供的组名。仅包含状态为 `success` 或 `failed` 的文档。
+
+Args:
+    group (str): 用于过滤文档的组名。
+
+**Returns:**
+
+- List[KBDocument]: 需要重新解析的 `KBDocument` 对象列表。
+
+说明:
+    - 使用线程安全锁 (`self._db_lock`) 确保多线程环境下的数据库访问安全。
+    - 查询通过 SQL `JOIN` 操作连接 `KBDocument` 和 `KBGroupDocuments` 表，并基于组名和重新解析状态进行过滤。
+    - 仅状态为 `success` 或 `failed` 且 `need_reparse=True` 的文档会被检索出来。
+"""
+        pass
 
     @abstractmethod
-    def get_existing_paths_by_pattern(self, file_path: str) -> List[str]: pass
+    def get_existing_paths_by_pattern(self, file_path: str) -> List[str]:
+        """根据给定的模式，检索符合条件的文档路径。
+此方法从数据库中获取所有符合提供的 SQL `LIKE` 模式的文档路径。
+
+Args:
+    pattern (str): 用于过滤文档路径的 SQL `LIKE` 模式。例如，`%example%` 匹配包含单词 "example" 的路径。
+
+**Returns:**
+
+- List[str]: 符合给定模式的文档路径列表。如果没有匹配的路径，则返回空列表。
+
+说明:
+    - 使用线程安全锁 (`self._db_lock`) 确保多线程环境下的数据库访问安全。
+    - SQL 查询中的 `LIKE` 操作符用于对文档路径进行模式匹配。
+"""
+        pass
 
     @abstractmethod
-    def update_file_message(self, fileid: str, **kw): pass
+    def update_file_message(self, fileid: str, **kw):
+        """更新指定文件的消息。
+
+Args:
+    fileid (str): 文件ID。
+    **kw: 需要更新的其他键值对。
+"""
+        pass
 
     @abstractmethod
     def update_file_status(self, file_ids: List[str], status: str,
-                           cond_status_list: Union[None, List[str]] = None) -> List[DocPartRow]: pass
+                           cond_status_list: Union[None, List[str]] = None) -> List[DocPartRow]:
+        """更新指定文件的状态。
+
+Args:
+    file_ids (list of str): 更新状态的文件ID列表。
+    status (str): 目标状态。
+    cond_status_list(Union[None, List[str]]):限制只更新处于这些状态的文档
+"""
+        pass
 
     @abstractmethod
-    def add_files_to_kb_group(self, file_ids: List[str], group: str): pass
+    def add_files_to_kb_group(self, file_ids: List[str], group: str):
+        """将文件添加到指定的知识库分组中。
+
+Args:
+    file_ids (list of str): 要添加的文件ID列表。
+    group (str): 要添加的分组名称。
+"""
+        pass
 
     @abstractmethod
-    def delete_files_from_kb_group(self, file_ids: List[str], group: str): pass
+    def delete_files_from_kb_group(self, file_ids: List[str], group: str):
+        """从指定的知识库分组中删除文件。
+
+Args:
+    file_ids (list of str): 要删除的文件ID列表。
+    group (str): 分组名称。
+"""
+        pass
 
     @abstractmethod
-    def get_file_status(self, fileid: str): pass
+    def get_file_status(self, fileid: str):
+        """获取指定文件的状态。
+
+Args:
+    fileid (str): 文件ID。
+
+**Returns:**
+
+- tr: 文件的当前状态。
+"""
+        pass
 
     @abstractmethod
     def update_kb_group(self, cond_file_ids: List[str], cond_group: Optional[str] = None,
                         cond_status_list: Optional[List[str]] = None, new_status: Optional[str] = None,
-                        new_need_reparse: Optional[bool] = None) -> List[GroupDocPartRow]: pass
+                        new_need_reparse: Optional[bool] = None) -> List[GroupDocPartRow]:
+        """更新指定知识库分组中的内容。
+
+Args:
+    cond_file_ids (list of str, optional): 过滤使用的文件ID列表，默认为None。
+    cond_group (str, optional): 过滤使用的知识库分组名称，默认为None。
+    cond_status_list (list of str, optional): 过滤使用的状态列表，默认为None。
+    new_status (str, optional): 新状态, 默认为None。
+    new_need_reparse (bool, optinoal): 新的是否需重解析标志。
+
+**Returns:**
+
+- list: 得到更新的列表list of (doc_id, group_name)
+"""
+        pass
 
     @abstractmethod
-    def release(self): pass
+    def release(self):
+        """释放当前管理器的资源。
+
+"""
+        pass
 
     @property
     def enable_path_monitoring(self):
+        """启用或禁用文档管理器的路径监控功能。
+此方法用于启用或禁用文档管理器的路径监控功能。当启用时，会启动一个监控线程处理与路径相关的操作；当禁用时，会停止该线程并等待它终止。
+
+Args:
+    val (bool): 启用或禁用路径监控。
+
+说明:
+    - 如果 `val` 为 `True`，路径监控功能会通过将 `_monitor_continue` 设置为 `True` 并启动 `_monitor_thread` 来启用。
+    - 如果 `val` 为 `False`，路径监控功能会通过将 `_monitor_continue` 设置为 `False` 并等待 `_monitor_thread` 终止来禁用。
+    - 方法在管理监控线程时确保线程操作是安全的。
+"""
         return self._enable_path_monitoring
 
     @enable_path_monitoring.setter
     def enable_path_monitoring(self, val: bool):
+        """启用或禁用文档管理器的路径监控功能。
+此方法用于启用或禁用文档管理器的路径监控功能。当启用时，会启动一个监控线程处理与路径相关的操作；当禁用时，会停止该线程并等待它终止。
+
+Args:
+    val (bool): 启用或禁用路径监控。
+
+说明:
+    - 如果 `val` 为 `True`，路径监控功能会通过将 `_monitor_continue` 设置为 `True` 并启动 `_monitor_thread` 来启用。
+    - 如果 `val` 为 `False`，路径监控功能会通过将 `_monitor_continue` 设置为 `False` 并等待 `_monitor_thread` 终止来禁用。
+    - 方法在管理监控线程时确保线程操作是安全的。
+"""
         self._enable_path_monitoring = (val is True)
         if val is True:
             self._monitor_continue = True
@@ -340,6 +637,24 @@ class DocListManager(ABC):
 
 
 class SqliteDocListManager(DocListManager):
+    """基于 SQLite 的文档管理器，用于本地文件的持久化存储、状态管理与元信息追踪。
+
+该类继承自 DocListManager，利用 SQLite 数据库存储文档记录。适用于管理具有唯一标识符的本地文档资源，并提供便捷的插入、查询、更新与状态过滤接口，支持可选的路径监控功能。
+
+Args:
+    path (str): 数据库存储路径。
+    name (str): 数据库文件名（不包含路径）。
+    enable_path_monitoring (bool): 是否启用对文件路径的变动监控，默认为 True。
+
+
+Examples:
+    >>> from lazyllm.tools.rag.utils import SqliteDocListManager
+    >>> manager = SqliteDocListManager(path="./data", name="docs.sqlite")
+    >>> manager.insert({"uid": "doc_001", "name": "example.txt", "status": "ready"})
+    >>> print(manager.get("doc_001"))
+    >>> files = manager.list_files(limit=5, details=True)
+    >>> print(files)
+    """
     def __init__(self, path, name, enable_path_monitoring=True):
         super().__init__(path, name, enable_path_monitoring)
 
@@ -360,6 +675,14 @@ class SqliteDocListManager(DocListManager):
         KBDataBase.metadata.create_all(bind=self._engine)
 
     def table_inited(self):
+        """检查数据库中是否已存在名为 "documents" 的表。
+
+该方法通过查询 sqlite_master 元信息表，判断数据表是否已初始化。
+
+**Returns:**
+
+- bool: 如果 "documents" 表存在，返回 True；否则返回 False。
+"""
         with self._db_lock, sqlite3.connect(self._db_path, check_same_thread=self._check_same_thread) as conn:
             cursor = conn.execute('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=\'documents\'')
             return cursor.fetchone() is not None
@@ -368,6 +691,19 @@ class SqliteDocListManager(DocListManager):
     def get_status_cond_and_params(status: Union[str, List[str]],
                                    exclude_status: Optional[Union[str, List[str]]] = None,
                                    prefix: str = None):
+        """生成用于文档状态筛选的 SQL 条件语句及其参数列表。
+
+根据传入的包含状态和排除状态，构造 WHERE 子句中使用的 SQL 表达式。支持字段名前缀，用于联表查询等场景。
+
+Args:
+    status (str 或 list of str): 要包含的文档状态。若为 "all"，不添加包含条件。
+    exclude_status (str 或 list of str, optional): 要排除的文档状态。不能为 "all"。
+    prefix (str, optional): 字段名前缀（如联表查询中的别名），将应用于字段名。
+
+**Returns:**
+
+- Tuple[str, list]: 包含 SQL 条件语句和对应参数的元组。
+"""
         conds, params = [], []
         prefix = f'{prefix}.' if prefix else ''
         if isinstance(status, str):
@@ -400,6 +736,22 @@ class SqliteDocListManager(DocListManager):
         return docs_not_expected, docs_expected
 
     def validate_paths(self, paths: List[str]) -> Tuple[bool, str, List[bool]]:
+        """验证输入路径所对应的文档是否可以安全添加到数据库。
+
+该方法会检查每个路径是否对应已有文档，若已存在，需判断其状态是否允许重解析。
+若文档正在解析或等待解析，或上次重解析未完成，则视为不可用。
+
+Args:
+    paths (List[str]): 文件路径列表。
+
+**Returns:**
+
+- Tuple[bool, str, List[bool]]:
+    - bool: 是否所有路径都验证通过。
+    - str: 成功或失败的描述信息。
+    - List[bool]: 与输入路径一一对应的布尔列表，表示该路径是否为新文档（True 为新文档，False 为已存在）。
+        若验证失败，返回值为 None。
+"""
         # check and return: success, msg, path_is_new for each path
         unsafe_staus_set = set([DocListManager.Status.working, DocListManager.Status.waiting])
         paths_is_new = [True] * len(paths)
@@ -432,6 +784,15 @@ class SqliteDocListManager(DocListManager):
         return True, 'Success', paths_is_new
 
     def update_need_reparsing(self, doc_id: str, need_reparse: bool, group_name: Optional[str] = None):
+        """更新指定文档的重解析标志位。
+
+该方法用于设置某个文档是否需要重新解析。可以选择性地指定知识库分组进行精确匹配。
+
+Args:
+    doc_id (str): 文档的唯一标识符。
+    need_reparse (bool): 是否需要重新解析文档。
+    group_name (Optional[str]): 可选，所属的知识库分组名称。如果提供，将仅更新指定分组中的文档。
+"""
         with self._db_lock, self._Session() as session:
             stmt = update(KBGroupDocuments).where(KBGroupDocuments.doc_id == doc_id)
             if group_name is not None: stmt = stmt.where(KBGroupDocuments.group_name == group_name)
@@ -441,6 +802,18 @@ class SqliteDocListManager(DocListManager):
     def list_files(self, limit: Optional[int] = None, details: bool = False,
                    status: Union[str, List[str]] = DocListManager.Status.all,
                    exclude_status: Optional[Union[str, List[str]]] = None):
+        """列出文档数据库中符合状态条件的文件，并根据参数选择返回完整记录或仅返回文件路径。
+
+Args:
+    limit (Optional[int]): 要返回的记录数上限，若为 None 则返回所有符合条件的记录。
+    details (bool): 是否返回完整的数据库行信息，若为 False 则仅返回文档路径（ID）。
+    status (Union[str, List[str]]): 要包含在结果中的状态值，默认为包含所有状态。
+    exclude_status (Optional[Union[str, List[str]]]): 要从结果中排除的状态值。
+
+**Returns:**
+
+- list: 文件记录列表或文档路径列表，具体取决于 `details` 参数。
+"""
         query = 'SELECT * FROM documents'
         params = []
         status_cond, status_params = self.get_status_cond_and_params(status, exclude_status, prefix=None)
@@ -455,12 +828,26 @@ class SqliteDocListManager(DocListManager):
             return cursor.fetchall() if details else [row[0] for row in cursor]
 
     def get_docs(self, doc_ids: List[str]) -> List[KBDocument]:
+        """根据给定的文档ID列表，从数据库中获取对应的文档对象列表。
+
+Args:
+    doc_ids (List[str]): 需要查询的文档ID列表。
+
+**Returns:**
+
+- List[KBDocument]: 匹配的文档对象列表。如果没有匹配项，返回空列表。
+"""
         with self._db_lock, self._Session() as session:
             docs = session.query(KBDocument).filter(KBDocument.doc_id.in_(doc_ids)).all()
             return docs
         return []
 
     def set_docs_new_meta(self, doc_meta: Dict[str, dict]):
+        """批量更新文档的元数据（meta），同时更新对应知识库分组中文档的 new_meta 字段（非等待状态的文档）。
+
+Args:
+    doc_meta (Dict[str, dict]): 字典，键为文档ID，值为对应的新元数据字典。
+"""
         data_to_update = [{'_doc_id': k, '_meta': json.dumps(v)} for k, v in doc_meta.items()]
         with self._db_lock, self._Session() as session:
             # Use sqlalchemy core bulk update
@@ -476,6 +863,15 @@ class SqliteDocListManager(DocListManager):
             session.commit()
 
     def fetch_docs_changed_meta(self, group: str) -> List[DocMetaChangedRow]:
+        """获取指定知识库分组中元数据发生变化的文档列表，并将对应的 new_meta 字段清空。
+
+Args:
+    group (str): 知识库分组名称。
+
+**Returns:**
+
+- List[DocMetaChangedRow]: 包含文档ID及其对应新元数据的列表。
+"""
         rows = []
         conds = [KBGroupDocuments.group_name == group, KBGroupDocuments.new_meta.isnot(None)]
         with self._db_lock, self._Session() as session:
@@ -490,11 +886,22 @@ class SqliteDocListManager(DocListManager):
         return rows
 
     def list_all_kb_group(self):
+        """列出数据库中所有的知识库分组名称。
+
+**Returns:**
+
+- List[str]: 知识库分组名称列表。
+"""
         with self._db_lock, sqlite3.connect(self._db_path, check_same_thread=self._check_same_thread) as conn:
             cursor = conn.execute('SELECT group_name FROM document_groups')
             return [row[0] for row in cursor]
 
     def add_kb_group(self, name):
+        """向数据库中添加一个新的知识库分组名称，若已存在则忽略。
+
+Args:
+    name (str): 要添加的知识库分组名称。
+"""
         with self._db_lock, sqlite3.connect(self._db_path, check_same_thread=self._check_same_thread) as conn:
             conn.execute('INSERT OR IGNORE INTO document_groups (group_name) VALUES (?)', (name,))
             conn.commit()
@@ -505,6 +912,25 @@ class SqliteDocListManager(DocListManager):
                             upload_status: Union[str, List[str]] = DocListManager.Status.all,
                             exclude_upload_status: Optional[Union[str, List[str]]] = None,
                             need_reparse: Optional[bool] = None):
+        """列出指定知识库分组中的文件信息，可根据多种条件进行过滤。
+
+Args:
+    group (str, optional): 知识库分组名称，若为 None 则不按分组过滤。
+    limit (int, optional): 限制返回的文件数量。
+    details (bool): 是否返回详细的文件信息。
+    status (str or List[str], optional): 过滤知识库分组中文件的状态。
+    exclude_status (str or List[str], optional): 排除指定状态的文件。
+    upload_status (str or List[str], optional): 过滤文件上传状态。
+    exclude_upload_status (str or List[str], optional): 排除指定的上传状态。
+    need_reparse (bool, optional): 是否只返回需要重新解析的文件。
+
+**Returns:**
+
+- list:
+    - 如果 details 为 False，返回列表，每个元素为 (doc_id, path) 元组。
+    - 如果 details 为 True，返回包含文件详细信息的元组列表，包括文档ID、路径、状态、元数据，
+      知识库分组名、分组内状态及日志。
+"""
         query = '''
             SELECT documents.doc_id, documents.path, documents.status, documents.meta,
                    kb_group_documents.group_name, kb_group_documents.status, kb_group_documents.log
@@ -545,6 +971,11 @@ class SqliteDocListManager(DocListManager):
         return rows
 
     def delete_unreferenced_doc(self):
+        """删除数据库中标记为删除且未被任何知识库分组引用的文档记录。
+
+该方法会查找状态为“deleting”且引用计数为0的文档，删除这些文档记录，并记录删除操作日志。
+
+"""
         with self._db_lock, self._Session() as session:
             docs_to_delete = (
                 session.query(KBDocument)
@@ -595,6 +1026,17 @@ class SqliteDocListManager(DocListManager):
         return documents
 
     def get_docs_need_reparse(self, group: str) -> List[KBDocument]:
+        """获取指定知识库分组中需要重新解析的文档列表。
+
+仅返回状态为“success”或“failed”的文档，且其对应的知识库分组记录标记为需要重新解析。
+
+Args:
+    group (str): 知识库分组名称。
+
+**Returns:**
+
+- List[KBDocument]: 需要重新解析的文档列表。
+"""
         with self._db_lock, self._Session() as session:
             filter_status_list = [DocListManager.Status.success, DocListManager.Status.failed]
             documents = (
@@ -606,6 +1048,15 @@ class SqliteDocListManager(DocListManager):
         return []
 
     def get_existing_paths_by_pattern(self, pattern: str) -> List[str]:
+        """根据路径匹配模式获取已存在的文档路径列表。
+
+Args:
+    pattern (str): 路径匹配模式，支持SQL的LIKE通配符。
+
+**Returns:**
+
+- List[str]: 匹配到的已存在文档路径列表。
+"""
         exist_paths = []
         with self._db_lock, self._Session() as session:
             docs = session.query(KBDocument).filter(KBDocument.path.like(pattern)).all()
@@ -614,6 +1065,12 @@ class SqliteDocListManager(DocListManager):
 
     # TODO(wangzhihong): set to metadatas and enable this function
     def update_file_message(self, fileid: str, **kw):
+        """更新指定文件的字段信息。
+
+Args:
+    fileid (str): 文件的唯一标识符（doc_id）。
+    **kw: 需要更新的字段及其对应的值，键值对形式传入。
+"""
         set_clause = ', '.join([f'{k} = ?' for k in kw.keys()])
         params = list(kw.values()) + [fileid]
         with self._db_lock, sqlite3.connect(self._db_path, check_same_thread=self._check_same_thread) as conn:
@@ -622,6 +1079,17 @@ class SqliteDocListManager(DocListManager):
 
     def update_file_status(self, file_ids: List[str], status: str,
                            cond_status_list: Union[None, List[str]] = None) -> List[DocPartRow]:
+        """更新多个文件的状态，支持根据当前状态进行条件过滤。
+
+Args:
+    file_ids (List[str]): 需要更新状态的文件ID列表。
+    status (str): 要设置的新状态。
+    cond_status_list (Union[None, List[str]], optional): 仅更新当前状态在此列表中的文件，默认为 None，表示不筛选。
+
+**Returns:**
+
+- List[DocPartRow]: 返回更新后的文件ID和路径列表。
+"""
         rows = []
         if cond_status_list is None:
             sql_cond = KBDocument.doc_id.in_(file_ids)
@@ -639,6 +1107,15 @@ class SqliteDocListManager(DocListManager):
         return rows
 
     def add_files_to_kb_group(self, file_ids: List[str], group: str):
+        """将多个文件添加到指定的知识库分组中。
+
+该方法会将文件状态设置为等待处理（waiting），
+若添加成功，则对应文档的计数（count）加一。
+
+Args:
+    file_ids (List[str]): 需要添加的文件ID列表。
+    group (str): 知识库分组名称。
+"""
         with self._db_lock, self._Session() as session:
             vals = []
             for doc_id in file_ids:
@@ -658,6 +1135,15 @@ class SqliteDocListManager(DocListManager):
                 session.commit()
 
     def delete_files_from_kb_group(self, file_ids: List[str], group: str):
+        """从指定的知识库分组中删除多个文件。
+
+删除成功后，对应文档的计数（count）减少，但不会低于0。
+若文档不存在，会记录警告日志。
+
+Args:
+    file_ids (List[str]): 需要删除的文件ID列表。
+    group (str): 知识库分组名称。
+"""
         with self._db_lock, self._Session() as session:
             for doc_id in file_ids:
                 records_to_delete = (
@@ -678,6 +1164,15 @@ class SqliteDocListManager(DocListManager):
                     lazyllm.LOG.warning(f'No document found for {doc_id}')
 
     def get_file_status(self, fileid: str):
+        """获取指定文件的状态。
+
+Args:
+    fileid (str): 文件的唯一标识符。
+
+**Returns:**
+
+- Optional[Tuple]: 返回包含状态的元组，若文件不存在则返回 None。
+"""
         with self._db_lock, sqlite3.connect(self._db_path, check_same_thread=self._check_same_thread) as conn:
             cursor = conn.execute('SELECT status FROM documents WHERE doc_id = ?', (fileid,))
         return cursor.fetchone()
@@ -685,6 +1180,21 @@ class SqliteDocListManager(DocListManager):
     def update_kb_group(self, cond_file_ids: List[str], cond_group: Optional[str] = None,
                         cond_status_list: Optional[List[str]] = None, new_status: Optional[str] = None,
                         new_need_reparse: Optional[bool] = None) -> List[GroupDocPartRow]:
+        """更新知识库分组中指定文件的状态和重解析需求。
+
+根据给定的文件ID列表、分组名及状态列表，批量更新对应文件在知识库分组中的状态及是否需要重解析标志。
+
+Args:
+    cond_file_ids (List[str]): 需要更新的文件ID列表。
+    cond_group (Optional[str]): 分组名称，若指定则只更新该分组内的文件。
+    cond_status_list (Optional[List[str]]): 仅更新状态匹配此列表的文件。
+    new_status (Optional[str]): 新的文件状态。
+    new_need_reparse (Optional[bool]): 新的重解析需求标志。
+
+**Returns:**
+
+- List[Tuple]: 返回更新后文件的doc_id、group_name及状态列表。
+"""
         rows = []
         conds = []
         if not cond_file_ids:
@@ -715,6 +1225,10 @@ class SqliteDocListManager(DocListManager):
         return rows
 
     def release(self):
+        """清空数据库中的所有文档、分组及相关操作日志数据。
+
+该操作会删除 documents、document_groups、kb_group_documents 和 operation_logs 表中的所有记录。
+"""
         with self._db_lock, sqlite3.connect(self._db_path, check_same_thread=self._check_same_thread) as conn:
             conn.execute('delete from documents')
             conn.execute('delete from document_groups')
@@ -1014,7 +1528,6 @@ def ensure_call_endpoint(raw: str, *, default_path: str = '/_call') -> str:
     return urlunsplit((scheme, parts.netloc, new_path, parts.query, parts.fragment))
 
 def _get_default_db_config(db_name: str):
-    '''get default db config'''
     db_name = db_name.split('.')[0]
     root_dir = os.path.expanduser(os.path.join(config['home'], '.dbs'))
     os.makedirs(root_dir, exist_ok=True)
@@ -1029,5 +1542,4 @@ def _get_default_db_config(db_name: str):
     }
 
 def _orm_to_dict(obj) -> Dict[str, Any]:
-    '''convert ORM object to dict'''
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}

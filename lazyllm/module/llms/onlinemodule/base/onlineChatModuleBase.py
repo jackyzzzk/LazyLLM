@@ -28,6 +28,89 @@ class StaticParams(TypedDict, total=False):
 
 
 class LazyLLMOnlineChatModuleBase(LazyLLMOnlineBase, LLMBase):
+    """OnlineChatModuleBase是管理开放平台的LLM接口的公共组件，具备训练、部署、推理等关键能力。OnlineChatModuleBase本身不支持直接实例化，
+                需要子类继承该类，并实现微调相关的上传文件、创建微调任务、查询微调任务以及和部署相关的创建部署服务、查询部署任务等接口。
+
+如果你需要支持新的开放平台的LLM的能力，请让你自定义的类继承自OnlineChatModuleBase：
+
+    1、根据新平台的模型返回参数情况考虑对返回结果进行后处理，如果模型返回的格式和openai一致，可以不用做任何处理
+    2、如果新平台支持模型的微调，也需要继承FileHandlerBase类，该类主要是验证文件格式，并在自定义类中把.jsonl格式数据转换为模型支持的数据才能用于后面的模型训练
+    3、如果新平台支持模型的微调，则需要实现文件上传、创建微调服务、查询微调服务的接口。即使新平台不用对微调后的模型进行部署，也请实现一个假的创建部署服务和查询部署服务的接口即可
+    4、如果新平台支持模型的微调，可以提供一个支持微调的模型列表，有助于在微调服务时进行判断
+    5、配置新平台支持的api_key到全局变量，通过lazyllm.config.add(变量名，类型，默认值，环境变量名)进行添加
+
+Args:
+    api_key (str): API访问密钥
+    base_url (str): API基础URL
+    model_name (str): 模型名称
+    stream (Union[bool, Dict[str, str]]): 流式输出或流式配置
+    return_trace (bool, optional): 返回追踪信息，默认为False
+    skip_auth (bool, optional): 跳过认证，默认为False
+    static_params (Optional[StaticParams], optional): 静态参数配置，默认为None
+    **kwargs: 其他模型参数
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.module import OnlineChatModuleBase
+    >>> from lazyllm.module.onlineChatModule.fileHandler import FileHandlerBase
+    >>> class NewPlatformChatModule(OnlineChatModuleBase):
+    ...     def __init__(self,
+    ...                   base_url: str = "<new platform base url>",
+    ...                   model: str = "<new platform model name>",
+    ...                   system_prompt: str = "<new platform system prompt>",
+    ...                   stream: bool = True,
+    ...                   return_trace: bool = False):
+    ...         super().__init__(model_type="new_class_name",
+    ...                          api_key=lazyllm.config['new_platform_api_key'],
+    ...                          base_url=base_url,
+    ...                          system_prompt=system_prompt,
+    ...                          stream=stream,
+    ...                          return_trace=return_trace)
+    ...
+    >>> class NewPlatformChatModule1(OnlineChatModuleBase, FileHandlerBase):
+    ...     TRAINABLE_MODELS_LIST = ['model_t1', 'model_t2', 'model_t3']
+    ...     def __init__(self,
+    ...                   base_url: str = "<new platform base url>",
+    ...                   model: str = "<new platform model name>",
+    ...                   system_prompt: str = "<new platform system prompt>",
+    ...                   stream: bool = True,
+    ...                   return_trace: bool = False):
+    ...         OnlineChatModuleBase.__init__(self,
+    ...                                       model_type="new_class_name",
+    ...                                       api_key=lazyllm.config['new_platform_api_key'],
+    ...                                       base_url=base_url,
+    ...                                       system_prompt=system_prompt,
+    ...                                       stream=stream,
+    ...                                       trainable_models=NewPlatformChatModule1.TRAINABLE_MODELS_LIST,
+    ...                                       return_trace=return_trace)
+    ...         FileHandlerBase.__init__(self)
+    ...     
+    ...     def _convert_file_format(self, filepath:str) -> str:
+    ...         pass
+    ...         return data_str
+    ...
+    ...     def _upload_train_file(self, train_file):
+    ...         pass
+    ...         return train_file_id
+    ...
+    ...     def _create_finetuning_job(self, train_model, train_file_id, **kw):
+    ...         pass
+    ...         return fine_tuning_job_id, status
+    ...
+    ...     def _query_finetuning_job(self, fine_tuning_job_id):
+    ...         pass
+    ...         return fine_tuned_model, status
+    ...
+    ...     def _create_deployment(self):
+    ...         pass
+    ...         return self._model_name, "RUNNING"
+    ... 
+    ...     def _query_deployment(self, deployment_id):
+    ...         pass
+    ...         return "RUNNING"
+    ...
+    """
     TRAINABLE_MODEL_LIST = []
     VLM_MODEL_PREFIX = []
     NO_PROXY = True
@@ -152,7 +235,6 @@ class LazyLLMOnlineChatModuleBase(LazyLLMOnlineBase, LLMBase):
     def forward(self, __input: Union[Dict, str] = None, *, llm_chat_history: List[List[str]] = None,
                 tools: List[Dict[str, Any]] = None, stream_output: bool = False, lazyllm_files=None,
                 url: str = None, model: str = None, **kw):
-        '''LLM inference interface'''
         # TODO(dengyuang): if current forward set stream_output = False but self._stream = True, will use stream = True
         stream_output = stream_output or self._stream
         __input, files = self._get_files(__input, lazyllm_files)
@@ -225,10 +307,29 @@ class LazyLLMOnlineChatModuleBase(LazyLLMOnlineBase, LLMBase):
         raise NotImplementedError(f'{self.series} not implemented _get_finetuned_model_names method in subclass')
 
     def set_train_tasks(self, train_file, **kw):
+        """设置模型微调训练任务参数。
+
+配置微调训练所需的训练数据文件和训练超参数，为后续训练任务做准备。
+
+Args:
+    train_file: 训练数据文件路径或文件对象
+    **kw: 训练超参数，如学习率、训练轮数等
+"""
         self._train_file = train_file
         self._train_parameters = kw
 
     def set_specific_finetuned_model(self, model_id):
+        """设置并使用特定的已微调模型。
+
+从已完成的微调模型列表中选择指定模型ID作为当前使用的模型。
+
+Args:
+    model_id (str): 要使用的微调模型ID
+
+**异常:** 
+
+- ValueError: 当提供的model_id不在有效微调模型列表中时抛出
+"""
         valid_jobs, _ = self._get_finetuned_model_names()
         valid_model_id = [model for _, model in valid_jobs]
         if model_id in valid_model_id:
@@ -262,9 +363,6 @@ class LazyLLMOnlineChatModuleBase(LazyLLMOnlineBase, LLMBase):
                                   you can ignore this warning.')
 
         def _create_for_finetuning_job():
-            '''
-            create for finetuning job to finish
-            '''
             file_id = self._upload_train_file(train_file=self._train_file)
             lazyllm.LOG.info(f'{os.path.basename(self._train_file)} upload success! file id is {file_id}')
             (fine_tuning_job_id, status) = self._create_finetuning_job(self._model_name,

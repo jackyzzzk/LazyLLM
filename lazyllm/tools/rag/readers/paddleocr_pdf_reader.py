@@ -14,6 +14,47 @@ from .readerBase import _RichReader
 lazyllm.config.add('paddleocr_api_key', str, None, 'PADDLEOCR_API_KEY', description='The API key for PaddleOCR')
 
 class PaddleOCRPDFReader(_RichReader):
+    """基于PaddleOCR服务的PDF解析器，通过调用PaddleOCR服务的API来解析PDF文件，支持丰富的文档结构识别。
+服务接入方式：
+1. 使用官方提供的 API 服务
+    - 在飞桨开发者平台（https://aistudio.baidu.com）注册账号并创建 api_key（访问令牌）
+    - 初始化时传入 api_key：PaddleOCRPDFReader(api_key="your_api_key")
+    - 或者通过环境变量 LAZYLLM_PADDLEOCR_API_KEY 设置 api_key 后初始化：PaddleOCRPDFReader()
+2. 使用本地部署的PaddleOCR-VL文档解析服务
+    - 服务化部署方式请参考官方文档第 4 节「服务化部署」：https://www.paddleocr.ai/main/version3.x/pipeline_usage/PaddleOCR-VL.html
+    - 初始化时传入服务地址 url：PaddleOCRPDFReader(url="http://127.0.0.1:8000")
+
+Args:
+    url (str, 可选):PaddleOCR 服务的接口地址。如果不提供，使用官方地址。
+    api_key (str, 可选):
+        访问 PaddleOCR 服务所需的 API Key。 url 与 api_key 至少提供一个。
+    format_block_content (bool, 默认 True): 是否将块级内容格式化为 Markdown。
+        若需要正确提取多级标题及文档层级结构，必须启用该选项。
+    use_layout_detection (bool, 默认 True): 是否启用版面检测进行 PDF 解析。
+        若为 False，则每一页仅视为一个整体元素进行处理。
+    use_chart_recognition (bool, 默认 True): 是否启用图表识别。
+        若为 True，图表将被解析为结构化表格；
+        若为 False，图表仅作为普通图片处理。
+    split_doc (bool, 默认 True): 若为 True（默认），则解析为一个 `RichDocNode`，可以搭配 `RichTransform` 解析出带有结构信息的节点；
+        若为 False，则解析为一个纯文本的 `DocNode`（markdown 内容）。
+    drop_types (List[str], 可选): 需要在解析结果中过滤掉的版面块类型列表，
+        默认为页眉、页脚、页码、印章等非正文内容。
+    post_func (Callable, 可选): 解析完成后对 `DocNode` 列表进行二次处理的后置函数。
+        该函数必须接收并返回 `List[DocNode]`。
+    images_dir (str, 可选):图片结果的保存目录。
+        若提供该参数，解析过程中提取的图片将写入该目录。
+
+Notes:
+    当 `split_doc=True` 时返回 `RichDocNode`，否则返回 `DocNode`，两种情况都只返回一个节点。
+    当 `split_doc=True` 时，强烈建议搭配 `RichTransform` 使用，可以解析出带有结构信息等 metadata 的节点；
+    如不使用 `RichTransform`，则解析出的节点会回退为纯文本节点。
+
+
+Examples:
+    from lazyllm.tools.rag.readers import PaddleOCRPDFReader
+    reader = PaddleOCRPDFReader(url="http://0.0.0.0:9000")  # PaddleOCR server address
+    nodes = reader("path/to/pdf")
+    """
     def __init__(self, url: str = None, api_key: str = None,
                  callback: Optional[Callable[[List[dict], Path, dict], List[DocNode]]] = None,
                  format_block_content: bool = True,
@@ -146,7 +187,6 @@ class PaddleOCRPDFReader(_RichReader):
             return []
 
     def _extract_content_blocks(self, parsing_res_list: List[dict], page_idx: int, img_map: dict) -> List[dict]:
-        '''Extract content blocks from PaddleOCR parsing results and convert to standard format.'''
         blocks = []
         for item in parsing_res_list:
             if item.get('block_label') in self._drop_types:

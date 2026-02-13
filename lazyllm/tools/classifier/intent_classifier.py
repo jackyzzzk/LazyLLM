@@ -62,6 +62,39 @@ Assistant:  查看天气
 
 
 class IntentClassifier(ModuleBase):
+    """意图分类模块，用于根据输入文本在给定的意图列表中进行分类。
+支持中英文自动选择提示模板，并可通过示例、提示、约束和注意事项增强分类效果。
+
+Args:
+    llm: 用于意图分类的大语言模型实例。
+    intent_list (list): 可选，意图类别列表，例如 ["聊天", "天气", "问答"]。
+    prompt (str): 可选，自定义提示语，插入到系统提示模板中。
+    constrain (str): 可选，分类约束条件说明。
+    attention (str): 可选，提示注意事项。
+    examples (list[list[str, str]]): 可选，分类示例列表，每个元素为 [输入文本, 标签]。
+    return_trace (bool): 是否返回执行过程的 trace，默认为 False。
+
+
+Examples:
+        >>> import lazyllm
+        >>> from lazyllm.tools import IntentClassifier
+        >>> classifier_llm = lazyllm.OnlineChatModule(source="openai")
+        >>> chatflow_intent_list = ["Chat", "Financial Knowledge Q&A", "Employee Information Query", "Weather Query"]
+        >>> classifier = IntentClassifier(classifier_llm, intent_list=chatflow_intent_list)
+        >>> classifier.start()
+        >>> print(classifier('What is the weather today'))
+        Weather Query
+        >>>
+        >>> with IntentClassifier(classifier_llm) as ic:
+        >>>     ic.case['Weather Query', lambda x: '38.5°C']
+        >>>     ic.case['Chat', lambda x: 'permission denied']
+        >>>     ic.case['Financial Knowledge Q&A', lambda x: 'Calling Financial RAG']
+        >>>     ic.case['Employee Information Query', lambda x: 'Beijing']
+        ...
+        >>> ic.start()
+        >>> print(ic('What is the weather today'))
+        38.5°C
+    """
     def __init__(self, llm, intent_list: list = None,
                  *, prompt: str = '', constrain: str = '', attention: str = '',
                  examples: Optional[list[list[str, str]]] = None, return_trace: bool = False) -> None:
@@ -99,6 +132,19 @@ class IntentClassifier(ModuleBase):
         tools: Union[List[Dict[str, Any]], None] = None,
         label: Union[str, None] = None,
     ):
+        """意图分类的预处理 Hook。
+将输入文本与意图列表打包为 JSON，并生成历史对话信息字符串。
+
+Args:
+    input (str | List | Dict | None): 输入文本，仅支持字符串类型。
+    history (List): 历史对话记录，默认为空列表。
+    tools (List[Dict] | None): 工具信息，可选。
+    label (str | None): 标签，可选。
+
+**Returns:**
+
+- tuple: 输入数据字典, 历史记录列表, 工具信息, 标签
+"""
         input_json = {}
         if isinstance(input, str):
             input_json = {'human_input': input, 'intent_list': self._intent_list}
@@ -111,6 +157,16 @@ class IntentClassifier(ModuleBase):
         return dict(history_info=history_info, input=input_text), history, tools, label
 
     def post_process_result(self, input):
+        """意图分类结果的后处理。
+如果结果在意图列表中则直接返回，否则返回意图列表的第一个元素。
+
+Args:
+    input (str): 分类模型输出结果。
+
+**Returns:**
+
+- str: 最终的分类标签。
+"""
         input = input.strip()
         return input if input in self._intent_list else self._intent_list[0]
 

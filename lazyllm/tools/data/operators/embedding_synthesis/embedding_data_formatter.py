@@ -17,6 +17,28 @@ else:
 
 
 class EmbeddingFormatFlagEmbedding(embedding):
+    """将数据格式化为 FlagEmbedding 训练格式的算子。
+
+该算子将输入的 query、pos（正样本）、neg（负样本）格式化为 FlagEmbedding 框架所需的训练数据格式。
+支持添加指令（instruction）字段用于有监督的 Embedding 训练。
+
+Args:
+    instruction (str, optional): 指令文本，用于有监督训练场景。默认为 None。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含 query、pos、neg 和可选 prompt 字段的字典。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    op = embedding.EmbeddingFormatFlagEmbedding(instruction='Represent this sentence for searching relevant passages:')
+    result = op({'query': 'machine learning', 'pos': ['ML tutorial'], 'neg': ['cooking recipe']})
+    # Returns: {'query': 'machine learning', 'pos': ['ML tutorial'], 'neg': ['cooking recipe'], 'prompt': 'Represent this sentence for searching relevant passages:'}
+    ```
+    """
     def __init__(self, instruction: Optional[str] = None, **kwargs):
         super().__init__(_concurrency_mode='process', **kwargs)
         self.instruction = instruction
@@ -47,6 +69,27 @@ class EmbeddingFormatFlagEmbedding(embedding):
 
 
 class EmbeddingFormatSentenceTransformers(embedding):
+    """将数据格式化为 SentenceTransformers 三元组训练格式的算子。
+
+该算子将输入的 query、pos（正样本）、neg（负样本）转换为 SentenceTransformers 框架所需的 anchor-positive-negative 三元组格式。
+适用于 MultipleNegativesRankingLoss 等损失函数的训练。
+
+Args:
+    **kwargs (dict): 可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 包含 anchor、positive、negative 字段的字典列表，每对正负样本生成一个三元组。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    op = embedding.EmbeddingFormatSentenceTransformers()
+    result = op({'query': 'machine learning', 'pos': ['ML basics'], 'neg': ['cooking tips']})
+    # Returns: [{'anchor': 'machine learning', 'positive': 'ML basics', 'negative': 'cooking tips'}]
+    ```
+    """
     def __init__(self, **kwargs):
         super().__init__(_concurrency_mode='process', **kwargs)
 
@@ -78,6 +121,27 @@ class EmbeddingFormatSentenceTransformers(embedding):
 
 
 class EmbeddingFormatTriplet(embedding):
+    """将数据格式化为通用三元组格式的算子。
+
+该算子将输入的 query、pos（正样本）、neg（负样本）转换为标准的三元组格式，
+字段名为 query、positive、negative。适用于多种 Embedding 训练框架。
+
+Args:
+    **kwargs (dict): 可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 包含 query、positive、negative 字段的字典列表，每对正负样本生成一个三元组。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    op = embedding.EmbeddingFormatTriplet()
+    result = op({'query': 'deep learning', 'pos': ['neural networks', 'AI'], 'neg': ['history', 'geography']})
+    # Returns list of triplets combining each positive with each negative
+    ```
+    """
     def __init__(self, **kwargs):
         super().__init__(_concurrency_mode='process', **kwargs)
 
@@ -109,6 +173,34 @@ class EmbeddingFormatTriplet(embedding):
 
 
 class EmbeddingTrainTestSplitter(embedding):
+    """将数据集分割为训练集和测试集的算子。
+
+该算子对输入数据进行随机打乱，并按指定比例分割为训练集和测试集。
+支持保存分割后的数据到 JSONL 文件，并可按指定键进行分层抽样。
+
+Args:
+    test_size (float): 测试集比例，默认为 0.1（即 10%）。
+    seed (int): 随机种子，用于可复现的分割结果，默认为 42。
+    stratify_key (str, optional): 分层抽样的键名，默认为 None。
+    train_output_file (str, optional): 训练集输出文件路径，默认为 None。
+    test_output_file (str, optional): 测试集输出文件路径，默认为 None。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 包含训练集和测试集的所有样本，每个样本添加了 'split' 字段标记所属集合。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    op = embedding.EmbeddingTrainTestSplitter(test_size=0.2, seed=123, train_output_file='train.jsonl', test_output_file='test.jsonl')
+    data = [{'query': 'q1', 'pos': 'p1'}, {'query': 'q2', 'pos': 'p2'}, {'query': 'q3', 'pos': 'p3'}]
+    result = op(data)
+    # Returns all samples with 'split' field ('train' or 'test')
+    # Saves train data to train.jsonl and test data to test.jsonl
+    ```
+    """
     def __init__(
         self,
         test_size: float = 0.1,

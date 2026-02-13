@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import DeclarativeBase
 
 class _TableBase(DeclarativeBase):
-    '''Lightweight base for dynamic ORM classes.'''
+    pass
 
 class Default(BaseModel):
     title: str = Field(default='', description='Title or main heading of the file')
@@ -16,16 +16,15 @@ class Default(BaseModel):
     author: Optional[str] = Field(default=None, description='Owner or author of the file')
 
 class ExtractionMode(Enum):
+    """An enumeration."""
     TEXT = 'text'
     MULTIMODAL = 'multimodal'
 
 class ExtractClue(BaseModel):
-    '''Clue for extraction'''
     reason: str = Field(default='', description='The reason for extraction')
     citation: List[str] = Field(default_factory=list, description='Citation of the clue')
 
 class ExtractMeta(BaseModel):
-    '''Extra information for extraction'''
     schema_set_id: str
     mode: ExtractionMode = Field(default=ExtractionMode.TEXT, description='Extraction mode')
     algo_id: str = Field(default='', description='Algorithm ID')
@@ -41,6 +40,7 @@ class ExtractResult(BaseModel):
 
 @dataclass
 class SchemaSetInfo:
+    """SchemaSetInfo(schema_set_id: str, schema_model: Type[pydantic.main.BaseModel])"""
     schema_set_id: str
     schema_model: Type[BaseModel]
 

@@ -17,6 +17,29 @@ else:
 
 
 class EmbeddingQueryRewrite(embedding):
+    """使用 LLM 对查询进行重写生成增强样本的算子。
+
+该算子利用语言模型对输入查询进行语义等价改写，生成多个表达不同但含义相同的查询变体，
+用于扩充 Embedding 训练数据。支持指定生成数量和语言。
+
+Args:
+    llm: 语言模型服务实例
+    num_augments (int): 每个查询生成的增强样本数量，默认 2
+    lang (str): 语言代码，'zh' 表示中文，'en' 表示英文，默认 'zh'
+    **kwargs (dict): 其它可选的参数。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    op = embedding.EmbeddingQueryRewrite(llm=my_llm, num_augments=3, lang='zh')
+    result = op({'query': '如何学习机器学习'})
+    # Returns list of augmented samples with rewritten queries
+    for item in result:
+        print(item['query'], item['is_augmented'], item['augment_method'])
+    ```
+    """
     def __init__(
         self,
         llm=None,
@@ -84,6 +107,27 @@ class EmbeddingQueryRewrite(embedding):
 
 
 class EmbeddingAdjacentWordSwap(embedding):
+    """通过交换相邻词语进行数据增强的算子。
+
+该算子使用基于规则的方法，随机选择查询中的相邻词对进行交换，生成语义相同但词序不同的查询变体。
+适用于长度大于2个词的查询。属于 CPU 密集型任务，使用进程模式并发。
+
+Args:
+    num_augments (int): 每个查询生成的增强样本数量，默认 2
+    **kwargs (dict): 其它可选的参数。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    op = embedding.EmbeddingAdjacentWordSwap(num_augments=2)
+    result = op({'query': 'machine learning tutorial'})
+    # Returns list with swapped versions like 'learning machine tutorial'
+    for item in result:
+        print(item['query'], item['is_augmented'], item['augment_method'])
+    ```
+    """
     def __init__(
         self,
         num_augments: int = 2,

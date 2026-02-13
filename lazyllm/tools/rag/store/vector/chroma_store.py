@@ -26,6 +26,16 @@ DEFAULT_INDEX_CONFIG = {
 
 
 class ChromaStore(LazyLLMStoreBase):
+    """
+ChromaStore 是基于 Chroma 的向量存储实现，继承自 LazyLLMStoreBase，支持向量写入、检索与持久化。
+
+Args:
+    uri (Optional[str]): Chroma 连接 URI，当未指定 `dir` 时必填。
+    dir (Optional[str]): 本地持久化存储路径，提供时使用 PersistentClient 模式。
+    index_kwargs (Optional[Union[Dict, List]]): Collection 配置参数，如索引类型、距离度量方式等。
+    client_kwargs (Optional[Dict]): 传递给 Chroma 客户端的额外参数。
+    **kwargs: 预留扩展参数。
+"""
     capability = StoreCapability.VECTOR
     need_embedding = True
     supports_index_registration = False
@@ -44,6 +54,13 @@ class ChromaStore(LazyLLMStoreBase):
 
     @property
     def dir(self):
+        """
+存储目录属性。
+
+**Returns:**
+
+- Optional[str]: 以斜杠结尾的目录路径，若未配置则返回 None。
+"""
         if not self._dir: return None
         p = Path(self._dir)
         p = p if p.suffix else (p / 'chroma.sqlite3')
@@ -81,6 +98,15 @@ class ChromaStore(LazyLLMStoreBase):
     def connect(self, embed_dims: Optional[Dict[str, int]] = None,
                 embed_datatypes: Optional[Dict[str, DataType]] = None,
                 global_metadata_desc: Optional[Dict[str, GlobalMetadataDesc]] = None, **kwargs):
+        """
+初始化 Chroma 客户端并配置向量化及元数据相关设定。
+
+Args:
+    embed_dims (Optional[Dict[str, int]]): 每个嵌入键对应的向量维度，未提供时默认为空字典。
+    embed_datatypes (Optional[Dict[str, DataType]]): 每个嵌入键的数据类型，仅支持 FLOAT_VECTOR 或 SPARSE_FLOAT_VECTOR。
+    global_metadata_desc (Optional[Dict[str, GlobalMetadataDesc]]): 全局元数据字段的描述，支持类型：字符串、整型、浮点型、布尔型。
+    **kwargs: 预留扩展参数。
+"""
         self._global_metadata_desc = global_metadata_desc or {}
         self._embed_dims = embed_dims or {}
         self._embed_datatypes = embed_datatypes or {}
@@ -101,6 +127,17 @@ class ChromaStore(LazyLLMStoreBase):
 
     @override
     def upsert(self, collection_name: str, data: List[dict]) -> bool:
+        """
+批量写入或更新记录（切片的id及向量数据）到 Chroma。
+
+Args:
+    collection_name (str): 集合名称。
+    data (List[dict]): 文档切片数据列表。
+
+**Returns:**
+
+- bool: 操作成功返回 True，否则 False。
+"""
         try:
             # NOTE chroma only support single embedding for each collection
             if not data:
@@ -133,6 +170,18 @@ class ChromaStore(LazyLLMStoreBase):
 
     @override
     def delete(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> bool:
+        """
+删除整个集合或指定记录。
+
+Args:
+    collection_name (str): 要删除的集合名称。
+    criteria (Optional[dict]): 若为 None，则删除整个集合；否则按字典条件删除匹配的记录（例如按 doc_id、uid、kb_id 删除）。
+    **kwargs: 预留扩展参数。
+
+**Returns:**
+
+- bool: 删除成功返回 True，否则返回 False。
+"""
         try:
             if not criteria:
                 for embed_key in self._embed_datatypes.keys():
@@ -162,6 +211,20 @@ class ChromaStore(LazyLLMStoreBase):
 
     @override
     def get(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> List[dict]:
+        """
+根据条件检索记录。
+
+Args:
+    collection_name (str): 要查询的集合名称。
+    criteria (Optional[dict]): 过滤条件，如主键或元数据（例如 doc_id、kb_id）。若为 None，则返回集合中所有记录。
+
+**Returns:**
+
+- List[dict]: 记录列表，每条记录包含：
+    - 'uid': 记录的唯一标识符。
+    - 'global_meta': 全局元数据字段的字典。
+    - 'embedding': 嵌入键到对应向量的映射。
+"""
         try:
             filters = self._construct_criteria(criteria) if criteria else {}
             all_data = []
@@ -205,6 +268,22 @@ class ChromaStore(LazyLLMStoreBase):
     def search(self, collection_name: str, query_embedding: List[float], embed_key: str, topk: Optional[int] = 10,
                filters: Optional[Dict[str, Union[str, int, List, Set]]] = None,
                **kwargs) -> List[dict]:
+        """
+执行向量相似度检索。
+
+Args:
+    collection_name (str): 要查询的集合名称。
+    query_embedding (List[float]): 用于检索的向量。
+    embed_key (str): 指定使用的向量空间 key。
+    topk (int, optional): 返回的结果数量，默认为 10。
+    filters (Optional[Dict[str, Union[str, int, List, Set]]]): 可选的元数据过滤条件，用于限制检索结果。
+
+**Returns:**
+
+- List[dict]: 匹配结果列表，每条记录包含：
+    - 'uid': 匹配记录的唯一标识符。
+    - 'score': 相似度分数（1 - 距离）。
+"""
         try:
             collection = self._client.get_collection(name=self._gen_collection_name(collection_name, embed_key))
 

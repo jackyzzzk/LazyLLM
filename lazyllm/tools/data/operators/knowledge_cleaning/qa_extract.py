@@ -13,6 +13,38 @@ else:
 
 
 class KBCLoadQAData(kbc):
+    """加载问答数据的算子。
+
+该算子从输入数据或分块文件中加载问答数据。首先检查输入数据中是否已包含问答数据，
+如果没有则尝试从增强分块文件、清洗后分块文件或普通分块文件中加载。
+
+Args:
+    qa_key (str): 问答数据字段名，默认为 'QA_pairs'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含问答数据的数据：
+    - _qa_data: 加载的问答数据
+    - _source_file: 数据来源文件路径（如果从文件加载）
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    loader = kbc.KBCLoadQAData(qa_key='QA_pairs')
+
+    # From existing data
+    data = {'QA_pairs': [{'question': 'Q1', 'answer': 'A1'}]}
+    result = loader(data)
+    # Returns: {'QA_pairs': [...], '_qa_data': [...]}
+
+    # From file
+    data = {'enhanced_chunk_path': '/path/to/enhanced.json'}
+    result = loader(data)
+    # Returns: {'enhanced_chunk_path': '...', '_qa_data': [...], '_source_file': '/path/to/enhanced.json'}
+    ```
+    """
     def __init__(self, qa_key: str = 'QA_pairs', **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
         self.qa_key = qa_key
@@ -55,6 +87,39 @@ class KBCLoadQAData(kbc):
 
 
 class KBCExtractQAPairs(kbc):
+    """提取问答对的算子。
+
+该算子从加载的问答数据中提取问答对，并将其转换为标准格式。
+支持自定义指令、问题和答案的输出字段名。
+
+Args:
+    qa_key (str): 问答数据字段名，默认为 'QA_pairs'。
+    instruction (str): 指令文本，默认为 'Please answer the following question based on the provided information.'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 提取的问答对列表，每个包含 instruction、input 和 output 字段。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    extractor = kbc.KBCExtractQAPairs(
+        qa_key='QA_pairs',
+        instruction='Please answer based on the context.'
+    )
+
+    data = {'_qa_data': {'qa_pairs': [{'question': 'What is AI?', 'answer': 'Artificial Intelligence'}]}}
+    result = extractor(
+        data,
+        output_instruction_key='instruction',
+        output_question_key='input',
+        output_answer_key='output'
+    )
+    # Returns: [{'instruction': 'Please answer based on the context.', 'input': 'What is AI?', 'output': 'Artificial Intelligence'}]
+    ```
+    """
     def __init__(
         self,
         qa_key: str = 'QA_pairs',

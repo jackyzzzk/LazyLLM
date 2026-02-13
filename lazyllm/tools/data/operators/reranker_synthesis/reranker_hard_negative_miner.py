@@ -64,6 +64,29 @@ def build_reranker_corpus(
     corpus: Optional[List[str]] = None,
     corpus_dir: Optional[str] = None,
 ) -> List[dict]:
+    """构建重排序语料库的函数。
+
+该函数从输入数据中提取正样本文本构建语料库，并保存到临时文件中供后续使用。
+
+Args:
+    inputs (List[dict]): 输入数据列表，每个字典应包含正样本。
+    input_pos_key (str): 正样本字段名，默认为 'pos'。
+    corpus (List[str], optional): 外部语料库，如果提供则直接使用。默认为 None。
+    corpus_dir (str, optional): 语料库文件保存目录，默认为临时目录。
+
+Returns:
+    List[dict]: 输入数据列表，每个数据添加了 '_corpus' 字段指向语料库文件路径。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data.operators.reranker_synthesis.reranker_hard_negative_miner import build_reranker_corpus
+
+    inputs = [{'query': 'q1', 'pos': ['doc1', 'doc2']}, {'query': 'q2', 'pos': ['doc2', 'doc3']}]
+    result = build_reranker_corpus(inputs)
+    # Returns: [{'query': 'q1', 'pos': [...], '_corpus': '/tmp/reranker_corpus_xxx.json'}, ...]
+    ```
+    """
 
     # Use external corpus if provided, otherwise build from inputs
     if corpus is None:
@@ -93,6 +116,31 @@ def build_reranker_corpus(
 
 
 class RerankerInitBM25(reranker):
+    """初始化BM25索引的算子。
+
+该算子基于语料库构建BM25索引，用于基于关键词的负样本挖掘。
+支持中英文分词，中文使用jieba，英文使用Stemmer词干提取。
+
+Args:
+    language (str): 语言类型，'zh'表示中文，'en'表示英文，默认为'zh'。
+    **kwargs (dict): 其他可选参数，传递给父类。
+
+Returns:
+    List[dict]: 输入数据列表，每个数据添加了BM25索引和分词器配置。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    init_bm25 = reranker.RerankerInitBM25(language='zh')
+
+    # 先构建语料库
+    data_with_corpus = reranker.build_reranker_corpus(inputs)
+    # 然后初始化BM25
+    result = init_bm25(data_with_corpus)
+    ```
+    """
     def __init__(self, language: str = 'zh', **kwargs):
         super().__init__(rewrite_func='forward_batch_input', **kwargs)
         self.language = language
@@ -148,6 +196,33 @@ class RerankerInitBM25(reranker):
 
 
 class RerankerInitSemantic(reranker):
+    """初始化语义向量的算子。
+
+该算子使用embedding服务计算语料库中所有文档的向量表示，并保存到文件中。
+用于后续的语义相似度计算和负样本挖掘。
+
+Args:
+    embedding_serving (Callable): embedding服务调用函数。
+    embeddings_dir (str, optional): 向量文件保存目录，默认为语料库所在目录。
+    **kwargs (dict): 其他可选参数，传递给父类。
+
+Returns:
+    List[dict]: 输入数据列表，每个数据添加了向量文件路径和语料库信息。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    # 假设 embedding_fn 是embedding服务
+    init_semantic = reranker.RerankerInitSemantic(embedding_serving=embedding_fn)
+
+    # 先构建语料库
+    data_with_corpus = reranker.build_reranker_corpus(inputs)
+    # 然后计算语义向量
+    result = init_semantic(data_with_corpus)
+    ```
+    """
     def __init__(self, embedding_serving: Optional[Callable] = None, embeddings_dir: Optional[str] = None, **kwargs):
         super().__init__(rewrite_func='forward_batch_input', **kwargs)
         self.embedding_serving = embedding_serving
@@ -197,6 +272,31 @@ class RerankerInitSemantic(reranker):
 
 
 class RerankerMineRandomNegatives(reranker):
+    """随机负样本挖掘算子。
+
+该算子从语料库中随机选择不属于正样本的文档作为负样本。
+适用于基线对比或需要随机负样本的场景。
+
+Args:
+    num_negatives (int): 需要挖掘的负样本数量，默认为 7。
+    seed (int): 随机种子，用于可复现的随机选择，默认为 42。
+    **kwargs (dict): 其他可选参数，传递给父类。
+
+Returns:
+    dict: 输入数据，添加了挖掘到的负样本列表。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    miner = reranker.RerankerMineRandomNegatives(num_negatives=5, seed=123)
+
+    data = {'query': 'machine learning', 'pos': ['ML tutorial'], '_corpus': corpus_path}
+    result = miner(data)
+    # Returns: {'query': '...', 'pos': [...], '_corpus': '...', 'neg': ['random_neg1', 'random_neg2', ...]}
+    ```
+    """
     def __init__(self, num_negatives: int = 7, seed: int = 42, **kwargs):
         super().__init__(_concurrency_mode='process', **kwargs)
         self.num_negatives = num_negatives
@@ -243,8 +343,32 @@ class RerankerMineRandomNegatives(reranker):
 
 
 class RerankerMineBM25Negatives(reranker):
+    """BM25负样本挖掘算子。
+
+该算子基于BM25索引，检索与查询最相关但不属于正样本的文档作为负样本。
+适用于挖掘与查询有词汇重叠但语义不同的困难负样本。
+
+Args:
+    num_negatives (int): 需要挖掘的负样本数量，默认为 7。
+    **kwargs (dict): 其他可选参数，传递给父类。
+
+Returns:
+    dict: 输入数据，添加了挖掘到的负样本列表。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    miner = reranker.RerankerMineBM25Negatives(num_negatives=5)
+
+    data = {'query': 'machine learning', 'pos': ['ML tutorial'], '_bm25': bm25_index, '_bm25_corpus': corpus}
+    result = miner(data)
+    # Returns: {'query': '...', 'pos': [...], 'neg': ['bm25_neg1', 'bm25_neg2', ...]}
+    ```
+    """
     def __init__(self, num_negatives: int = 7, **kwargs):
-        super().__init__(_concurrency_mode='process', **kwargs)
+        super().__init__(_concurrency_mode='thread', **kwargs)
         self.num_negatives = num_negatives
 
     def forward(
@@ -291,10 +415,40 @@ class RerankerMineBM25Negatives(reranker):
                 if len(negatives) >= self.num_negatives:
                     break
 
-        return {**data, output_neg_key: negatives}
+        result = {k: v for k, v in data.items() if k not in (
+            '_bm25', '_bm25_corpus', '_bm25_tokenizer', '_bm25_stopwords', '_bm25_stemmer'
+        )}
+        result[output_neg_key] = negatives
+        return result
 
 
 class RerankerMineSemanticNegatives(reranker):
+    """语义相似度负样本挖掘算子。
+
+该算子基于语义向量相似度，找出与查询最相似但不属于正样本的文档作为负样本。
+适用于挖掘语义相近但实际不相关的困难负样本，通常比BM25方法效果更好。
+
+Args:
+    num_negatives (int): 需要挖掘的负样本数量，默认为 7。
+    embedding_serving (Callable): embedding服务调用函数，用于计算查询向量。
+    **kwargs (dict): 其他可选参数，传递给父类。
+
+Returns:
+    dict: 输入数据，添加了基于语义相似度挖掘的负样本列表。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    # 假设 embedding_fn 是embedding服务
+    miner = reranker.RerankerMineSemanticNegatives(num_negatives=5, embedding_serving=embedding_fn)
+
+    data = {'query': 'machine learning', 'pos': ['ML tutorial'], '_semantic_embeddings_path': emb_path, '_semantic_corpus': corpus}
+    result = miner(data)
+    # Returns: {'query': '...', 'pos': [...], 'neg': ['semantic_neg1', 'semantic_neg2', ...]}
+    ```
+    """
     def __init__(self, num_negatives: int = 7,
                  embedding_serving: Optional[Callable] = None, **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
@@ -341,9 +495,47 @@ class RerankerMineSemanticNegatives(reranker):
 
 
 class RerankerMineMixedNegatives(reranker):
+    """混合策略负样本挖掘算子。
+
+该算子结合BM25和语义相似度两种方法挖掘负样本。按指定比例分别使用两种方法，
+可以获得更多样化的困难负样本。
+
+Args:
+    embedding_serving (Callable): embedding服务调用函数。
+    num_negatives (int): 需要挖掘的负样本数量，默认为 7。
+    bm25_ratio (float): BM25方法占比，剩余部分使用语义方法，默认为 0.5。
+    **kwargs (dict): 其他可选参数，传递给父类。
+
+Returns:
+    dict: 输入数据，添加了混合策略挖掘的负样本列表。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import reranker
+
+    # 假设 embedding_fn 是embedding服务
+    miner = reranker.RerankerMineMixedNegatives(
+        embedding_serving=embedding_fn,
+        num_negatives=6,
+        bm25_ratio=0.5  # 3个BM25负样本 + 3个语义负样本
+    )
+
+    data = {
+        'query': 'machine learning',
+        'pos': ['ML tutorial'],
+        '_bm25': bm25_index,
+        '_bm25_corpus': corpus,
+        '_semantic_embeddings_path': emb_path,
+        '_semantic_corpus': corpus
+    }
+    result = miner(data)
+    # Returns: {'query': '...', 'pos': [...], 'neg': [...]} 包含3个BM25负样本和3个语义负样本
+    ```
+    """
     def __init__(self, embedding_serving: Optional[Callable] = None,
                  num_negatives: int = 7, bm25_ratio: float = 0.5, **kwargs):
-        super().__init__(_concurrency_mode='process', **kwargs)
+        super().__init__(_concurrency_mode='thread', **kwargs)
         self.num_negatives = num_negatives
         self.bm25_ratio = bm25_ratio
         self.embedding_serving = embedding_serving
@@ -414,4 +606,8 @@ class RerankerMineMixedNegatives(reranker):
             semantic_negatives = [doc for _, doc in scored_docs[:num_semantic]]
 
         negatives = bm25_negatives + semantic_negatives
-        return {**data, output_neg_key: negatives}
+        result = {k: v for k, v in data.items() if k not in (
+            '_bm25', '_bm25_corpus', '_bm25_tokenizer', '_bm25_stopwords', '_bm25_stemmer'
+        )}
+        result[output_neg_key] = negatives
+        return result

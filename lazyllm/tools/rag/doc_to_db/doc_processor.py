@@ -28,6 +28,18 @@ class LazyllmDocTableDesc(TableBase):
 
 
 class DocToDbProcessor:
+    """用于将文档信息抽取并导出到数据库中。
+
+该类通过分析文档主题、抽取字段结构、从文档中提取关键信息，并将其保存至数据库表中。
+
+Args:
+    sql_manager (SqlManager): SQL数据库管理器实例
+    doc_table_name (str, optional): 文档信息存储表名，默认为"lazyllm_doc_elements"
+
+Note:
+    - 如果表已存在，会自动检测并避免重复创建。
+    - 如果你希望重置字段结构，使用 `reset_doc_info_schema` 方法。
+"""
 
     DB_TYPE_MAP = {
         'int': sqlalchemy.Integer,
@@ -104,6 +116,10 @@ class DocToDbProcessor:
             self._table_class = None
 
     def clear(self):
+        """清除处理器状态和数据库表结构。
+
+清空当前文档信息模式、移除ORM类映射，并可选地删除数据库中的文档表。
+"""
         self._clear_table_orm()
         self._table_class = None
         self._doc_info_schema = None
@@ -138,6 +154,17 @@ class DocToDbProcessor:
     def analyze_info_schema_by_llm(
         self, llm: Union[OnlineChatModule, TrainableModule], doc_paths: List[str], doc_topic: str = ''
     ) -> DocInfoSchema:
+        """使用大语言模型从文档节点中推断数据库信息结构。
+
+Args:
+    llm (Union[OnlineChatModule, TrainableModule]): 大语言模型实例
+    doc_paths (List[str]): 文档路径列表
+    doc_topic (str, optional): 文档主题，如果为空会自动分析
+
+**Returns:**
+
+- DocInfoSchema: 分析得到的文档信息模式列表
+"""
         assert len(doc_paths) > 0, 'doc_paths should not be empty'
         if not doc_topic:
             doc_topic = self._doc_genre_analyser.analyse_doc_genre(llm, doc_paths[0])
@@ -148,6 +175,19 @@ class DocToDbProcessor:
     def extract_info_from_docs(
         self, llm: Union[OnlineChatModule, TrainableModule], doc_paths: List[str], extra_desc: str = ''
     ) -> List[dict]:
+        """从文档中提取结构化数据库信息。
+
+该函数使用嵌入和检索技术，在提供的文档中获取数据库相关的文本片段，用于后续模式生成。
+
+Args:
+    llm (Union[OnlineChatModule, TrainableModule]): 大语言模型实例
+    doc_paths (List[str]): 要处理的文档路径列表
+    extra_desc (str, optional): 额外的描述信息，用于辅助提取
+
+**Returns:**
+
+- List[dict]: 提取的信息字典列表，每个字典对应一个文档的提取结果
+"""
         existent_doc_paths = self._list_existent_doc_paths_in_db(doc_paths)
         # skip docs already in db
         doc_paths = list(set(doc_paths) - set(existent_doc_paths))
@@ -162,6 +202,13 @@ class DocToDbProcessor:
         return info_dicts
 
     def export_info_to_db(self, info_dicts: List[dict]):
+        """将提取的信息导出到数据库。
+
+将提取的结构化信息批量插入到数据库表中，自动生成UUID和时间戳。
+
+Args:
+    info_dicts (List[dict]): 要导出的信息字典列表
+"""
         # Generate uuid explicitly because SQLite doesn't support auto gen uuid
         new_values = []
         for kws_value in info_dicts:
@@ -183,4 +230,23 @@ class DocToDbProcessor:
             return [ele[0] for ele in result]
 
 def extract_db_schema_from_files(file_paths: List[str], llm: Union[OnlineChatModule, TrainableModule]) -> DocInfoSchema:
+    """给定文档路径和LLM模型，提取文档结构信息。
+
+Args:
+    file_paths (List[str]): 要分析的文档路径。
+    llm (Union[OnlineChatModule, TrainableModule]): 支持聊天的模型模块。
+
+**Returns:**
+
+- DocInfoSchema: 提取出的字段结构描述。
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.components.document_to_db import extract_db_schema_from_files
+    >>> llm = lazyllm.OnlineChatModule()
+    >>> file_paths = ["doc1.pdf", "doc2.pdf"]
+    >>> schema = extract_db_schema_from_files(file_paths, llm)
+    >>> print(schema)
+    """
     return DocToDbProcessor(sql_manager=None).analyze_info_schema_by_llm(llm, file_paths)

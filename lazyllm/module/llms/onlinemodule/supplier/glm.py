@@ -18,6 +18,17 @@ from lazyllm.components.formatter import encode_query_with_filepaths
 
 
 class GLMChat(OnlineChatModuleBase, FileHandlerBase):
+    """GLMChat 类，继承自 OnlineChatModuleBase 和 FileHandlerBase，封装了对智谱 GLM 系列模型的在线调用功能。  
+支持对话生成、文件处理以及模型微调等能力。默认使用 GLM-4 模型，也可指定其他训练型模型（如 chatglm3-6b、chatglm_12b 等）。
+
+Args:
+    base_url (Optional[str]): 智谱 GLM 服务的 API 接口地址，默认为 "https://open.bigmodel.cn/api/paas/v4/"。
+    model (Optional[str]): 使用的 GLM 模型名称，默认为 "glm-4"，也可选择 TRAINABLE_MODEL_LIST 中的其他模型。
+    api_key (Optional[str]): 访问 GLM 服务的 API Key，若未提供则从 lazyllm 配置中读取。
+    stream (Optional[bool]): 是否开启流式输出，默认为 True。
+    return_trace (Optional[bool]): 是否返回调试追踪信息，默认为 False。
+    **kwargs: 其他传递给 OnlineChatModuleBase 的可选参数。
+"""
     TRAINABLE_MODEL_LIST = ['chatglm3-6b', 'chatglm_12b', 'chatglm_32b', 'chatglm_66b', 'chatglm_130b']
     VLM_MODEL_PREFIX = ['glm-4.5v', 'glm-4.1v', 'glm-4v']
     MODEL_NAME = 'glm-4'
@@ -212,6 +223,13 @@ class GLMChat(OnlineChatModuleBase, FileHandlerBase):
 
 
 class GLMEmbed(LazyLLMOnlineEmbedModuleBase):
+    """GLM嵌入模型接口类，用于调用智谱AI的文本嵌入服务。
+
+Args:
+    embed_url (str): 嵌入服务API地址，默认为"https://open.bigmodel.cn/api/paas/v4/embeddings"
+    embed_model_name (str): 嵌入模型名称，默认为"embedding-2"
+    api_key (str): API密钥
+"""
     def __init__(self,
                  embed_url: str = 'https://open.bigmodel.cn/api/paas/v4/embeddings',
                  embed_model_name: str = 'embedding-2',
@@ -223,6 +241,21 @@ class GLMEmbed(LazyLLMOnlineEmbedModuleBase):
 
 
 class GLMRerank(LazyLLMOnlineRerankModuleBase):
+    """智谱AI的重排序模块，继承自OnlineEmbeddingModuleBase，用于对文档进行相关性重排序。
+
+Args:
+    embed_url (str): 重排序API的基础URL，默认为"https://open.bigmodel.cn/api/paas/v4/rerank"。
+    embed_model_name (str): 使用的模型名称，默认为"rerank"。
+    api_key (str): 智谱AI的API密钥，如果未提供则从lazyllm.config['glm_api_key']读取。
+
+属性：
+    type: 返回模型类型，固定为"ONLINE_RERANK"。
+
+主要功能：
+    - 对输入的查询和文档列表进行相关性重排序
+    - 支持自定义排序参数
+    - 返回每个文档的相关性得分
+"""
     def __init__(self,
                  embed_url: str = 'https://open.bigmodel.cn/api/paas/v4/rerank',
                  embed_model_name: str = 'rerank',
@@ -251,12 +284,41 @@ class GLMRerank(LazyLLMOnlineRerankModuleBase):
 
 
 class GLMMultiModal():
+    """智谱AI的多模态基础模块，继承自OnlineMultiModalBase，用于处理多模态任务。
+
+Args:
+    model_name (str): 模型名称。
+    api_key (str): API密钥，如果未提供则从lazyllm.config['glm_api_key']读取。
+    base_url (str): API的基础URL，默认为'https://open.bigmodel.cn/api/paas/v4'。
+    return_trace (bool): 是否返回调用追踪信息，默认为False。
+    **kwargs: 其他传递给基类的参数。
+
+功能特点：
+
+    1. 支持多模态输入处理
+    2. 使用ZhipuAI客户端进行API调用
+    3. 提供统一的多模态接口
+    4. 可自定义基础URL和API密钥
+
+注意：
+    该类作为GLM多模态功能的基础类，通常作为其他具体多模态实现（如语音转文本、文本生成图像等）的父类。
+"""
     def __init__(self, api_key: str = None, base_url: str = 'https://open.bigmodel.cn/api/paas/v4'):
         api_key = api_key or lazyllm.config['glm_api_key']
         self._client = zhipuai.ZhipuAI(api_key=api_key, base_url=base_url)
 
 
 class GLMSTT(LazyLLMOnlineSTTModuleBase, GLMMultiModal):
+    """GLM语音识别模块，继承自GLMMultiModal。
+
+提供基于智谱AI的语音转文本(STT)功能，支持音频文件的语音识别。
+
+Args:
+    model_name (str, optional): 模型名称，默认为配置中的模型名或"glm-asr"
+    api_key (str, optional): API密钥，默认为配置中的密钥
+    return_trace (bool, optional): 是否返回追踪信息，默认为False
+    **kwargs: 其他模型参数
+"""
     MODEL_NAME = 'glm-asr'
 
     def __init__(self, model_name: str = None, api_key: str = None,
@@ -280,6 +342,15 @@ class GLMSTT(LazyLLMOnlineSTTModuleBase, GLMMultiModal):
 
 
 class GLMText2Image(LazyLLMOnlineText2ImageModuleBase, GLMMultiModal):
+    """GLM文本生成图像模块，继承自 GLMMultiModal，封装了调用 GLM CogView-4 模型生成图像的功能。  
+支持根据文本提示（prompt）生成指定数量和分辨率的图像，并可通过 API Key 调用远程服务。
+
+Args:
+    model_name (Optional[str]): 使用的 GLM 模型名称，默认使用 "cogview-4-250304" 或配置中的 'glm_text_to_image_model_name'。
+    api_key (Optional[str]): API Key，用于访问 GLM 图像生成服务。
+    return_trace (bool): 是否返回调试追踪信息，默认为 False。
+    **kwargs: 其他传递给 GLMMultiModal 的参数。
+"""
     MODEL_NAME = 'cogview-4-250304'
 
     def __init__(self, model_name: str = None, api_key: str = None, return_trace: bool = False,

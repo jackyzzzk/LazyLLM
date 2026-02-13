@@ -18,6 +18,7 @@ from lazyllm.thirdparty import nltk
 from lazyllm.thirdparty import transformers
 
 class MetadataMode(str, Enum):
+    """An enumeration."""
     ALL = 'ALL'
     EMBED = 'EMBED'
     LLM = 'LLM'
@@ -25,6 +26,7 @@ class MetadataMode(str, Enum):
 
 @dataclass
 class _Split:
+    """_Split(text: str, is_sentence: bool, token_size: int)"""
     text: str
     is_sentence: bool
     token_size: int
@@ -58,6 +60,21 @@ def split_text_keep_separator(text: str, separator: str) -> List[str]:
 
 
 class NodeTransform(ABC):
+    """
+批量处理文档节点，支持单线程/多线程模式。
+
+Args:
+    num_workers (int)：控制是否启用多线程（>0 时启用）。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import NodeTransform
+    >>> node_tran = NodeTransform(num_workers=num_workers)
+    >>> doc = lazyllm.Document(dataset_path="/path/to/your/data", embed=m, manager=False)
+    >>> nodes = node_tran.batch_forward(doc, "word_split")
+    """
     __support_rich__ = False
 
     def __init__(self, num_workers: int = 0):
@@ -77,6 +94,14 @@ class NodeTransform(ABC):
     def batch_forward(
         self, documents: Union[DocNode, List[DocNode]], node_group: str, ref_path: List[str] = None, **kwargs
     ) -> List[DocNode]:
+        """
+批量处理文档节点并生成指定组的子节点。
+
+Args:
+    documents (Union[DocNode, List[DocNode]]): 待处理的输入节点（单个或列表）。
+    node_group (str): 目标转换组名称。
+    **kwargs: 额外转换参数。
+"""
         documents: List[DocNode] = documents if isinstance(documents, (tuple, list)) else [documents]
 
         def impl(node: DocNode):
@@ -102,9 +127,23 @@ class NodeTransform(ABC):
 
     @abstractmethod
     def transform(self, document: DocNode, **kwargs) -> List[Union[str, DocNode]]:
+        """
+[抽象方法] 需要子类实现的核心转换逻辑。
+
+Args:
+    document (DocNode): 输入文档节点。
+    **kwargs: 实现相关的参数。
+"""
         raise NotImplementedError('Not implemented')
 
     def with_name(self, name: Optional[str], *, copy: bool = True) -> 'NodeTransform':
+        """
+设置转换器名称）。
+
+Args:
+    name (Optional[str]): 转换器的新名称。
+    copy (bool): 是否返回副本，默认为True。
+"""
         if name is not None:
             if copy: return copy_obj(self).with_name(name, copy=False)
             self._name = name

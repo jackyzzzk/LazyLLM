@@ -68,6 +68,24 @@ DEFAULT_MAPPING_BODY = {
 
 
 class ElasticSearchStore(LazyLLMStoreBase):
+    """
+基于 Elasticsearch 的向量存储实现，继承自 StoreBase。支持向量写入、删除、相似度检索，兼容标量过滤。
+Args:
+    uris (List[str]): Elasticsearch 连接 URI（如 ["http://localhost:9200"]）。
+    client_kwargs (Optional[Dict]): 传递给 Elasticsearch 客户端的额外参数。
+    index_kwargs (Optional[Union[Dict, List]]): 索引创建参数（例如 {"index_type": "IVF_FLAT", "metric_type": "CONSINE"} ，支持按向量模型的key配置列表）。
+    **kwargs: 预留扩展参数。
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.tools.rag.store import ElasticSearchStore
+    >>> store = ElasticSearchStore(uris=["localhost:9200"], client_kwargs={}, index_kwargs={})
+    >>> store.connect(embed_dims={"vec_dense": 128, "vec_sparse": 128}, embed_datatypes={"vec_dense": DataType.FLOAT32, "vec_sparse": DataType.FLOAT32}, global_metadata_desc={})
+    >>> store.upsert(collection_name="test", data=[{"uid": "1", "embedding": {"vec_dense": [0.1, 0.2, 0.3], "vec_sparse": {"1": 0.1, "2": 0.2, "3": 0.3}}, "metadata": {"key1": "value1", "key2": "value2"}}])
+    >>> store.get(collection_name="test", criteria={"uid": "1"})
+    >>> store.delete(collection_name="test", criteria={"uid": "1"})
+    """
     capability = StoreCapability.SEGMENT
     need_embedding = False
     supports_index_registration = False
@@ -89,10 +107,26 @@ class ElasticSearchStore(LazyLLMStoreBase):
 
     @property
     def dir(self):
+        """
+远程模式返回 None。
+**Returns:**
+
+    Optional[str]: None。
+"""
         return None
 
     @override
     def connect(self, global_metadata_desc: Optional[Dict[str, GlobalMetadataDesc]] = None, **kwargs) -> bool:
+        """
+初始化 Elasticsearch 客户端，传入向量化模型参数和全局元数据描述。
+Args:
+    embed_dims (Dict[str, int]): 每个嵌入键对应的向量维度。
+    embed_datatypes (Dict[str, DataType]): 每个嵌入键的数据类型。
+    global_metadata_desc (Dict[str, GlobalMetadataDesc]): 全局元数据字段的描述。
+**Returns:**
+
+    bool: 操作成功返回 True，否则 False。
+"""
         try:
             self._ddl_lock = threading.Lock()
             # Elastic Cloud
@@ -147,6 +181,15 @@ class ElasticSearchStore(LazyLLMStoreBase):
 
     @override
     def upsert(self, collection_name: str = None, data: List[Dict] = None) -> bool:
+        """
+批量写入或更新切片数据到 Elasticsearch 集合。
+Args:
+    collection_name (str): 集合名称，通常为 "group_embedKey" 格式。
+    data (List[dict]): 切片数据列表。
+**Returns:**
+
+    bool: 操作成功返回 True，否则 False。
+"""
         if not data:
             return False
         try:
@@ -173,6 +216,15 @@ class ElasticSearchStore(LazyLLMStoreBase):
 
     @override
     def delete(self, collection_name: str = None, criteria: Optional[Dict] = None, **kwargs) -> bool:
+        """
+删除整个集合或按条件删除指定记录。
+Args:
+    collection_name (str): 目标集合名称。
+    criteria (Optional[dict]): 若为 None 则删除整个集合；否则按 uid 列表或元数据条件过滤。
+**Returns:**
+
+    bool: 删除成功返回 True，否则 False。
+"""
         try:
             if not self._client.indices.exists(index=collection_name):
                 LOG.warning(f'[ElasticSearchStore - delete] Index {collection_name} does not exist')
@@ -205,6 +257,15 @@ class ElasticSearchStore(LazyLLMStoreBase):
 
     @override
     def get(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> List[dict]:  # noqa: C901
+        """
+检索匹配主键或元数据过滤条件的记录。
+Args:
+    collection_name (str): 待查询集合。
+    criteria (Optional[dict]): 包含 'uid' 列表或元数据字段过滤条件。
+**Returns:**
+
+    List[dict]: 每项包含 'uid' 及 'embedding' 映射。
+"""
         try:
             if not self._client.indices.exists(index=collection_name):
                 return []
@@ -247,6 +308,19 @@ class ElasticSearchStore(LazyLLMStoreBase):
     @override
     def search(self, collection_name: str, query: str,
                topk: Optional[int] = 10, filters: Optional[dict] = None, **kwargs) -> List[Dict]:  # noqa: C901
+        """
+执行向量相似度检索，并可按元数据过滤。
+Args:
+    collection_name (str): 待搜索集合。
+    query (Optional[str]): 查询字符串。
+    topk (Optional[int]): 返回邻近数量。
+    filters (Optional[dict]): 元数据过滤映射。
+    kwargs: 其他搜索参数
+
+**Returns:**
+
+- List[dict]: 返回匹配结果列表及相似度 'score'。
+"""
         query_fields = ['*']
         try:
             self._ensure_index(collection_name)

@@ -13,6 +13,28 @@ from lazyllm.thirdparty import PIL
 from lazyllm.components.utils.downloader.model_downloader import LLMType
 
 class OnlineMultiModalBase(LazyLLMOnlineBase, LLMBase):
+    """多模态在线模型的基类，继承自LLMBase，提供多模态模型的基础功能实现。
+
+Args:
+    model_name (str): 模型名称，默认为None。如果未指定会产生警告。
+    return_trace (bool): 是否返回调用追踪信息，默认为False。
+    **kwargs: 其他传递给基类的参数。
+
+属性：
+
+    series: 返回模型系列名称。
+    type: 返回模型类型，固定为"MultiModal"。
+
+主要方法：
+
+    share(): 创建模块的共享实例。
+    forward(input, lazyllm_files, **kwargs): 处理输入和文件的主要方法。
+    _forward(input, files, **kwargs): 需要被子类实现的具体前向处理方法。
+
+注意：
+    - 子类必须实现_forward方法。
+    - 如果未指定模型名称(model_name)，系统会产生警告日志。
+"""
     __lazyllm_registry_disable__ = True
 
     def __init__(self, model: str = None, return_trace: bool = False, skip_auth: bool = False,
@@ -29,12 +51,10 @@ class OnlineMultiModalBase(LazyLLMOnlineBase, LLMBase):
         return 'MultiModal'
 
     def _forward(self, input: Union[Dict, str] = None, files: List[str] = None, **kwargs):
-        '''Forward method to be implemented by subclasses'''
         raise NotImplementedError(f'Subclass {self.__class__.__name__} must implement this method')
 
     def forward(self, input: Union[Dict, str] = None, *, lazyllm_files=None,
                 url: str = None, model: str = None, **kwargs):
-        '''Main forward method with file handling'''
         try:
             input, files = self._get_files(input, lazyllm_files)
             runtime_url = url or kwargs.pop('base_url', None) or self._base_url

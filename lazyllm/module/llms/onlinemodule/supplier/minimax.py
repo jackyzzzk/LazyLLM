@@ -12,6 +12,18 @@ from ..fileHandler import FileHandlerBase
 
 
 class MinimaxChat(OnlineChatModuleBase, FileHandlerBase):
+    """Minimax 模块，继承自 OnlineChatModuleBase 和 FileHandlerBase。
+
+提供基于 Minimax 平台的大语言模型对话能力。
+
+Args:
+    base_url (str, optional): API 基础地址，默认为 "https://api.minimaxi.com/v1/"
+    model (str, optional): 使用的模型名称，默认为 "MiniMax-M2"
+    api_key (str, optional): API 密钥，默认从配置项 lazyllm.config['minimax_api_key'] 中读取
+    stream (bool, optional): 是否启用流式输出，默认为 True；启用时会自动设置请求参数
+    return_trace (bool, optional): 是否返回追踪信息，默认为 False
+    **kwargs: 其他传递给父类的可选参数
+"""
 
     def __init__(self, base_url: str = 'https://api.minimaxi.com/v1/', model: str = 'MiniMax-M2',
                  api_key: str = None, stream: bool = True, return_trace: bool = False, **kwargs):
@@ -25,7 +37,6 @@ class MinimaxChat(OnlineChatModuleBase, FileHandlerBase):
         return 'You are an intelligent assistant provided by Minimax. You are a helpful assistant.'
 
     def _convert_msg_format(self, msg: Dict[str, Any]):
-        '''Convert the reasoning_details in output to reasoning_content field in message'''
         choices = msg.get('choices')
         if not isinstance(choices, list):
             return msg
@@ -53,7 +64,6 @@ class MinimaxChat(OnlineChatModuleBase, FileHandlerBase):
         return msg
 
     def _validate_api_key(self):
-        '''Validate API Key by sending a minimal chat request'''
         try:
             data = {
                 'model': self._model_name,
@@ -67,6 +77,17 @@ class MinimaxChat(OnlineChatModuleBase, FileHandlerBase):
 
 
 class MinimaxText2Image(LazyLLMOnlineText2ImageModuleBase):
+    """Minimax 文生图模块，继承自 OnlineMultiModalBase。
+
+提供基于 Minimax 平台的文本生成图像功能，支持根据文本描述生成图像。
+
+Args:
+    api_key (str, optional): API 密钥，默认为配置项 lazyllm.config['minimax_api_key']
+    model_name (str, optional): 模型名称，默认为 "image-01"
+    base_url (str, optional): API 基础地址，默认为 "https://api.minimaxi.com/v1/"
+    return_trace (bool, optional): 是否返回追踪信息，默认为 False
+    **kwargs: 其他传递给父类的可选参数
+"""
     MODEL_NAME = 'image-01'
 
     def __init__(self, api_key: str = None, model: str = None,
@@ -140,6 +161,17 @@ class MinimaxText2Image(LazyLLMOnlineText2ImageModuleBase):
 
 
 class MinimaxTTS(LazyLLMOnlineTTSModuleBase):
+    """Minimax 文本转语音模块，继承自 OnlineMultiModalBase。
+
+提供基于 Minimax 平台的文本转语音(TTS)功能，支持将文本转换为音频文件。
+
+Args:
+    api_key (str, optional): API 密钥，默认为配置项 lazyllm.config['minimax_api_key']
+    model_name (str, optional): 模型名称，默认为 "speech-2.6-hd"
+    base_url (str, optional): API 基础地址，默认为 "https://api.minimaxi.com/v1/"
+    return_trace (bool, optional): 是否返回追踪信息，默认为 False
+    **kwargs: 其他传递给父类的可选参数
+"""
     MODEL_NAME = 'speech-2.6-hd'
 
     def __init__(self, api_key: str = None, model_name: str = None,

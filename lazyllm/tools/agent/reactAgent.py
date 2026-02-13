@@ -63,6 +63,54 @@ You are responsible for maintaining correctness, efficiency, and clarity through
 
 
 class ReactAgent(LazyLLMAgentBase):
+    """ReactAgent是按照 `Thought->Action->Observation->Thought...->Finish` 的流程一步一步的通过LLM和工具调用来显示解决用户问题的步骤，以及最后给用户的答案。
+
+Args:
+    llm: 大语言模型实例，用于生成推理和工具调用决策
+    tools (List[str]): 可用工具列表，可以是工具函数或工具名称
+    max_retries (int): 最大重试次数，当工具调用失败时自动重试，默认为5
+    return_trace (bool): 是否返回完整的执行轨迹，用于调试和分析，默认为False
+    prompt (str): 自定义提示词模板，如果为None则使用内置模板
+    stream (bool): 是否启用流式输出，用于实时显示生成过程，默认为False
+    return_last_tool_calls (bool): 若为True，在模型结束且存在工具调用记录时返回最后一次的工具调用轨迹。
+    skills (bool | str | List[str]): Skills 配置。True 启用 Skills 并自动筛选；传入 str/list 启用指定技能。
+    desc (str): Agent 能力描述，可为空。
+    workspace (str): Agent 默认工作目录，默认是 `config['home']/agent_workspace`。
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.tools import fc_register, ReactAgent
+    >>> @fc_register("tool")
+    >>> def multiply_tool(a: int, b: int) -> int:
+    ...     '''
+    ...     Multiply two integers and return the result integer
+    ...
+    ...     Args:
+    ...         a (int): multiplier
+    ...         b (int): multiplier
+    ...     '''
+    ...     return a * b
+    ...
+    >>> @fc_register("tool")
+    >>> def add_tool(a: int, b: int):
+    ...     '''
+    ...     Add two integers and returns the result integer
+    ...
+    ...     Args:
+    ...         a (int): addend
+    ...         b (int): addend
+    ...     '''
+    ...     return a + b
+    ...
+    >>> tools = ["multiply_tool", "add_tool"]
+    >>> llm = lazyllm.TrainableModule("internlm2-chat-20b").start()   # or llm = lazyllm.OnlineChatModule(source="sensenova")
+    >>> agent = ReactAgent(llm, tools)
+    >>> query = "What is 20+(2*4)? Calculate step by step."
+    >>> res = agent(query)
+    >>> print(res)
+    'Answer: The result of 20+(2*4) is 28.'
+    """
     def __init__(self, llm, tools: Optional[List[str]] = None, max_retries: int = 5, return_trace: bool = False,
                  prompt: str = None, stream: bool = False, return_last_tool_calls: bool = False,
                  skills: Optional[Union[bool, str, List[str]]] = None, desc: str = '',

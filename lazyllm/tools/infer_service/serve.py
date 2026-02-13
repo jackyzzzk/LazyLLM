@@ -22,6 +22,11 @@ class _JobDescription(BaseModel):
 
 
 class InferServer(ServerBase):
+    """推理服务服务器类，继承自ServerBase。
+
+提供模型推理服务的创建、管理、监控和日志查询等RESTful API接口。
+
+"""
 
     def _update_status(self, token, job_id):  # noqa: C901
         if not self._in_active_jobs(token, job_id):
@@ -131,6 +136,17 @@ class InferServer(ServerBase):
 
     @app.post('/v1/inference_services')
     async def create_job(self, job: _JobDescription, token: str = Header(DEFAULT_TOKEN)):  # noqa B008
+        """创建推理任务。
+
+根据任务描述创建新的模型推理服务，启动部署线程并初始化任务状态。
+
+Args:
+    job (JobDescription): 任务描述对象
+    token (str): 用户令牌
+
+Returns:
+    dict: 包含任务ID的响应
+"""
         if not self._in_user_job_info(token):
             self._update_user_job_info(token)
         if self._in_active_jobs(token, job.service_name):
@@ -195,6 +211,17 @@ class InferServer(ServerBase):
 
     @app.delete('/v1/inference_services/{job_id}')
     async def cancel_job(self, job_id: str, token: str = Header(DEFAULT_TOKEN)):  # noqa B008
+        """取消推理任务。
+
+停止指定的推理任务，清理资源并更新任务状态。
+
+Args:
+    job_id (str): 任务ID
+    token (str): 用户令牌
+
+Returns:
+    dict: 包含任务状态的响应
+"""
         await self.authorize_current_user(token)
         if not self._in_active_jobs(token, job_id):
             raise HTTPException(status_code=404, detail='Job not found')
@@ -221,6 +248,16 @@ class InferServer(ServerBase):
 
     @app.get('/v1/inference_services')
     async def list_jobs(self, token: str = Header(DEFAULT_TOKEN)):  # noqa B008
+        """列出所有推理任务。
+
+获取当前用户的所有推理任务列表。
+
+Args:
+    token (str): 用户令牌
+
+Returns:
+    dict: 任务列表信息
+"""
         if not self._in_user_job_info(token):
             self._update_user_job_info(token)
         server_running_dict = self._read_user_job_info(token)
@@ -228,6 +265,17 @@ class InferServer(ServerBase):
 
     @app.get('/v1/inference_services/{job_id}')
     async def get_job_info(self, job_id: str, token: str = Header(DEFAULT_TOKEN)):  # noqa B008
+        """获取任务详细信息。
+
+查询指定任务的详细信息，包括状态、端点、耗时等。
+
+Args:
+    job_id (str): 任务ID
+    token (str): 用户令牌
+
+Returns:
+    dict: 任务详细信息
+"""
         await self.authorize_current_user(token)
         if not self._in_user_job_info(token, job_id):
             raise HTTPException(status_code=404, detail='Job not found')
@@ -238,6 +286,17 @@ class InferServer(ServerBase):
 
     @app.get('/v1/inference_services/{job_id}/events')
     async def get_job_log(self, job_id: str, token: str = Header(DEFAULT_TOKEN)):  # noqa B008
+        """获取任务日志。
+
+获取指定任务的日志文件路径或日志内容。
+
+Args:
+    job_id (str): 任务ID
+    token (str): 用户令牌
+
+Returns:
+    dict: 日志信息
+"""
         await self.authorize_current_user(token)
         if not self._in_user_job_info(token, job_id):
             raise HTTPException(status_code=404, detail='Job not found')

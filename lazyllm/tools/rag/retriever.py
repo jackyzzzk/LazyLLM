@@ -39,6 +39,74 @@ class _RetrieverBase(ModuleBase):
 
 
 class Retriever(_RetrieverBase, _PostProcess):
+    """
+创建一个用于文档查询和检索的检索模块。此构造函数初始化一个检索模块，该模块根据指定的相似度度量配置文档检索过程。
+
+Args:
+    doc: 文档模块实例。该文档模块可以是单个实例，也可以是一个实例的列表。如果是单个实例，表示对单个Document进行检索，如果是实例的列表，则表示对多个Document进行检索。
+    group_name: 在哪个 node group 上进行检索。
+    similarity: 用于设置文档检索的相似度函数。默认为 'dummy'。候选集包括 ["bm25", "bm25_chinese", "cosine"]。
+    similarity_cut_off: 当相似度低于指定值时丢弃该文档。在多 embedding 场景下，如果需要对不同的 embedding 指定不同的值，则需要使用字典的方式指定，key 表示指定的是哪个 embedding，value 表示相应的阈值。如果所有的 embedding 使用同一个阈值，则只指定一个数值即可。
+    index: 用于文档检索的索引类型。目前仅支持 'default'。
+    topk: 表示取相似度最高的多少篇文档。
+    embed_keys: 表示通过哪些 embedding 做检索，不指定表示用全部 embedding 进行检索。
+    target：目标组名，将结果转换到目标组。
+    output_format: 代表输出格式，默认为None，可选值有 'content' 和 'dict'，其中 content 对应输出格式为字符串，dict 对应字典。
+    join: 是否联合输出的 k 个节点，当输出格式为 content 时，如果设置该值为 True，则输出一个长字符串，如果设置为 False 则输出一个字符串列表，其中每个字符串对应每个节点的文本内容。当输出格式是 dict 时，不能联合输出，此时join默认为False,，将输出一个字典，包括'content、'embedding'、'metadata'三个key。
+
+其中 `group_name` 有三个内置的切分策略，都是使用 `SentenceSplitter` 做切分，区别在于块大小不同：
+
+- CoarseChunk: 块大小为 1024，重合长度为 100
+- MediumChunk: 块大小为 256，重合长度为 25
+- FineChunk: 块大小为 128，重合长度为 12
+
+此外，LazyLLM提供了内置的`Image`节点组存储了所有图像节点，支持图像嵌入和检索。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import Retriever, Document, SentenceSplitter
+    >>> m = lazyllm.OnlineEmbeddingModule()
+    >>> documents = Document(dataset_path='/path/to/user/data', embed=m, manager=False)
+    >>> rm = Retriever(documents, group_name='CoarseChunk', similarity='bm25', similarity_cut_off=0.01, topk=6)
+    >>> rm.start()
+    >>> print(rm("user query"))
+    >>> m1 = lazyllm.TrainableModule('bge-large-zh-v1.5').start()
+    >>> document1 = Document(dataset_path='/path/to/user/data', embed={'online':m , 'local': m1}, manager=False)
+    >>> document1.create_node_group(name='sentences', transform=SentenceSplitter, chunk_size=1024, chunk_overlap=100)
+    >>> retriever = Retriever(document1, group_name='sentences', similarity='cosine', similarity_cut_off=0.4, embed_keys=['local'], topk=3)
+    >>> print(retriever("user query"))
+    >>> document2 = Document(dataset_path='/path/to/user/data', embed={'online':m , 'local': m1}, manager=False)
+    >>> document2.create_node_group(name='sentences', transform=SentenceSplitter, chunk_size=512, chunk_overlap=50)
+    >>> retriever2 = Retriever([document1, document2], group_name='sentences', similarity='cosine', similarity_cut_off=0.4, embed_keys=['local'], topk=3)
+    >>> print(retriever2("user query"))
+    >>>
+    >>> filters = {
+    >>>     "author": ["A", "B", "C"],
+    >>>     "public_year": [2002, 2003, 2004],
+    >>> }
+    >>> document3 = Document(dataset_path='/path/to/user/data', embed={'online':m , 'local': m1}, manager=False)
+    >>> document3.create_node_group(name='sentences', transform=SentenceSplitter, chunk_size=512, chunk_overlap=50)
+    >>> retriever3 = Retriever([document1, document3], group_name='sentences', similarity='cosine', similarity_cut_off=0.4, embed_keys=['local'], topk=3)
+    >>> print(retriever3(query="user query", filters=filters))
+    >>> document4 = Document(dataset_path='/path/to/user/data', embed=lazyllm.TrainableModule('siglip'))
+    >>> retriever4 = Retriever(document4, group_name='Image', similarity='cosine')
+    >>> nodes = retriever4("user query")
+    >>> print([node.get_content() for node in nodes])
+    >>> document5 = Document(dataset_path='/path/to/user/data', embed=m, manager=False)
+    >>> rm = Retriever(document5, group_name='CoarseChunk', similarity='bm25_chinese', similarity_cut_off=0.01, topk=3, output_format='content')
+    >>> rm.start()
+    >>> print(rm("user query"))
+    >>> document6 = Document(dataset_path='/path/to/user/data', embed=m, manager=False)
+    >>> rm = Retriever(document6, group_name='CoarseChunk', similarity='bm25_chinese', similarity_cut_off=0.01, topk=3, output_format='content', join=True)
+    >>> rm.start()
+    >>> print(rm("user query"))
+    >>> document7 = Document(dataset_path='/path/to/user/data', embed=m, manager=False)
+    >>> rm = Retriever(document7, group_name='CoarseChunk', similarity='bm25_chinese', similarity_cut_off=0.01, topk=3, output_format='dict')
+    >>> rm.start()
+    >>> print(rm("user query"))
+    """
     def __init__(self, doc: object, group_name: str, similarity: Optional[str] = None,
                  similarity_cut_off: Union[float, Dict[str, float]] = float('-inf'), index: str = 'default',
                  topk: int = 6, embed_keys: Optional[List[str]] = None, target: Optional[str] = None,
@@ -196,6 +264,15 @@ class Retriever(_RetrieverBase, _PostProcess):
 
 
 class TempRetriever(_RetrieverBase, _PostProcess):
+    """
+临时文档检索器基类，用于 `TempDocRetriever` 和 `ContextRetriever`。
+
+Args:
+    embed:嵌入函数。
+    output_format:结果输出格式(如json),可选默认为None
+    join:是否合并多段结果(True或用分隔符如"
+")
+"""
     def __init__(self, embed: Callable = None, output_format: Optional[str] = None, join: Union[bool, str] = False):
         super().__init__()
         self._doc = Document(doc_files=[])
@@ -205,11 +282,39 @@ class TempRetriever(_RetrieverBase, _PostProcess):
 
     def create_node_group(self, name: str = None, *, transform: Callable, parent: str = LAZY_ROOT_NAME,
                           trans_node: bool = None, num_workers: int = 0, **kwargs):
+        """
+创建文档处理节点组，用于配置文档的分块和转换策略。
+
+Args:
+    name (str): 节点组名称，None时自动生成。
+    transform (Callable): 该组文档的处理函数。
+    parent (str): 父组名称，默认为根组。
+    trans_node (bool): 是否转换节点，None时继承父组设置。
+    num_workers (int): 并行处理worker数，0表示串行。
+    **kwargs: 其他组参数。
+
+**Returns:**
+
+- self: 支持链式调用的当前实例
+"""
         self._doc.create_node_group(name, transform=transform, parent=parent,
                                     trans_node=trans_node, num_workers=num_workers, **kwargs)
         return self
 
     def add_subretriever(self, group: str, **kwargs):
+        """
+添加带搜索配置的子检索器。
+
+Args:
+    group (str): 节点组名称，指定使用哪个已配置的节点组进行检索
+    **kwargs: 检索器配置参数，包括：
+        - similarity (str): 相似度计算方法，'cosine'（余弦相似度）或'bm25'（BM25算法）
+        - 其他检索器特定参数
+
+**Returns:**
+
+- self: 支持链式调用。
+"""
         if 'similarity' not in kwargs: kwargs['similarity'] = ('cosine' if self._embed else 'bm25')
         self._node_groups.append((group, kwargs))
         return self
@@ -234,6 +339,29 @@ class TempRetriever(_RetrieverBase, _PostProcess):
 
 
 class TempDocRetriever(TempRetriever):
+    """
+临时文档检索器，继承自TempRetriever，用于快速处理临时文件并执行检索任务。
+
+Args:
+    embed:嵌入函数。
+    output_format:结果输出格式(如json),可选默认为None
+    join:是否合并多段结果(True或用分隔符如"
+")
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import TempDocRetriever, Document, SentenceSplitter
+    >>> retriever = TempDocRetriever(output_format="text", join="
+    ---------------
+    ")
+        retriever.create_node_group(transform=lambda text: [s.strip() for s in text.split("。") if s] )
+        retriever.add_subretriever(group=Document.MediumChunk, topk=3)
+        files = ["/path/to/file.txt"]
+        results = retriever.forward(files, "什么是机器学习?")
+        print(results)
+    """
     @functools.lru_cache(maxsize=128)  # noqa B019
     def _get_retrievers(self, doc_files: List[str]):
         return self._get_retrievers_impl(doc_files)
@@ -243,6 +371,31 @@ class TempDocRetriever(TempRetriever):
 
 
 class ContextRetriever(TempRetriever):
+    """
+基于上下文内容的检索器，继承自 TempRetriever，用于直接对内存中的文本内容进行检索，而非依赖真实存在的文档文件。
+
+该检索器会通过 TempPathGenerator 将传入的上下文字符串临时转换为文件路径，
+在此基础上构建 Retriever，并使用 LRU 缓存以提升重复查询时的性能。
+
+Args:
+    embed: 用于向量检索的嵌入函数；若未提供，则自动退化为关键词检索（如 BM25）。
+    output_format: 结果输出格式（如 "text"、"json"），可选，默认 None。
+    join: 是否合并多段检索结果，可为 True 或自定义分隔符（如 "\n"）。
+
+
+Examples:
+    >>> ctx1 = '大学之道，在明明德，
+    在亲民，在止于至善。
+    知止而后有定，定而后能静，静而后能安。'
+    >>> ctx2 = '子曰：学而时习之，不亦说乎？
+    有朋自远方来，不亦乐乎？'
+    >>> ret = ContextRetriever(output_format='dict')
+    >>> ret.create_node_group('block', transform=lambda x: x.split('
+    '))
+    >>> ret.add_subretriever(Document.CoarseChunk, topk=1)
+    >>> ret.add_subretriever('block', topk=3)
+    >>> ret([ctx1, ctx2], '大学')
+    """
     def forward(self, context: Union[str, List[str]], query):
         return super().forward(context, query)
 
@@ -325,6 +478,19 @@ class _CompositeRetrieverBase(_RetrieverBase, _PostProcess):
 
 
 class WeightedRetriever(_CompositeRetrieverBase):
+    """
+WeightedRetriever 用于将多个 Retriever 的召回结果按照权重进行融合。
+
+该组合器要求：
+- **禁止使用 priority**：所有子 Retriever 不允许定义 priority 属性；
+- **权重一致性**：一旦任意 Retriever 定义了 weight，则所有 Retriever 都必须定义 weight；
+- **按比例分配 Top-K**：在设置 topk 的情况下，根据各 Retriever 的权重比例分配返回名额，
+  并在部分 Retriever 结果不足时，动态将剩余额度重新分配给其他 Retriever；
+- **支持权重归一化**：内部会自动对权重进行归一化处理，保证比例分配的稳定性。
+
+适用于希望通过权重精细控制不同召回器贡献度的场景，例如：
+BM25 + 向量检索 + 规则检索的加权融合。
+"""
     def _further_check(self, retrievers: List[Retriever]):
         if any(getattr(r, 'priority', None) for r in retrievers):
             raise RuntimeError('priority is not allowed in `WeightedRetriever`.')
@@ -379,6 +545,23 @@ class WeightedRetriever(_CompositeRetrieverBase):
                 *, weights: Optional[List[float]] = None, topk: Optional[int] = None,
                 combine: Optional[Callable[[List, List, int], List]] = None,
                 search_kwargs: Optional[Dict[str, Any]] = None):
+        """
+执行加权检索并融合多个 Retriever 的召回结果。
+
+该方法会：
+- 根据传入或预定义的 weights 对 Retriever 进行加权；
+- 自动过滤权重接近 0 的 Retriever，以减少不必要的召回开销；
+- 在设置 topk 时，按权重比例对各 Retriever 的结果进行名额分配，
+  并在结果不足时进行动态回填；
+- 支持自定义 combine 函数以覆盖默认的融合逻辑。
+
+Args:
+    query (str): 用户查询文本。
+    filters (dict, optional): 检索过滤条件。
+    weights (List[float], optional): 每个 Retriever 对应的权重列表。
+    topk (int, optional): 最终返回的最大结果数量。
+    combine (Callable, optional): 自定义结果融合函数。
+"""
         weights = self._get_real_params(weights, 'weights', '(int, float)')
         weights = self._normalize(weights)
         indices, weights = zip(*[(i, w) for i, w in enumerate(weights) if w > 1e-5])
@@ -387,6 +570,18 @@ class WeightedRetriever(_CompositeRetrieverBase):
 
 
 class PriorityRetriever(_CompositeRetrieverBase):
+    """
+PriorityRetriever 用于基于优先级对多个 Retriever 的结果进行组合。
+
+该组合器的设计原则包括：
+- **禁止使用 weight**：子 Retriever 不允许定义 weight 属性；
+- **基于优先级顺序返回结果**：按照 high → normal → low 的顺序依次合并各 Retriever 的结果；
+- **支持 ignore 优先级**：被标记为 ignore 的 Retriever 将在预处理阶段被直接跳过；
+- **Top-K 截断**：在合并过程中一旦达到 topk 数量即停止继续合并。
+
+适用于对结果顺序要求明确、需要“高优先级结果优先返回”的场景，
+例如规则召回优先于语义召回的检索体系。
+"""
     def _further_check(self, retrievers: List[Retriever]):
         if any(getattr(r, 'weight', None) for r in retrievers):
             raise RuntimeError('weight is not allowed in `PriorityRetriever`.')
@@ -412,6 +607,22 @@ class PriorityRetriever(_CompositeRetrieverBase):
                 *, priorities: Optional[List[Retriever.Priority]] = None, topk: Optional[int] = None,
                 combinef: Optional[Callable[[List, List, int], List]] = None,
                 search_kwargs: Optional[Dict[str, Any]] = None):
+        """
+执行基于优先级的检索并合并多个 Retriever 的结果。
+
+该方法会：
+- 使用传入或 Retriever 自身定义的 priorities；
+- 在预处理阶段直接忽略 priority 为 ignore 的 Retriever；
+- 按 high → normal → low 的顺序合并各 Retriever 的结果；
+- 在达到 topk 数量后立即停止合并，避免不必要的计算。
+
+Args:
+    query (str): 用户查询文本。
+    filters (dict, optional): 检索过滤条件。
+    priorities (List[Retriever.Priority], optional): 每个 Retriever 的优先级列表。
+    topk (int, optional): 最终返回的最大结果数量。
+    combinef (Callable, optional): 自定义优先级融合函数。
+"""
         priorities = self._get_real_params(priorities, 'priorities', list(Retriever.Priority))
         # Top-k is not used during the preprocessing stage.
         indices, priorities = zip(*[(i, p) for i, p in enumerate(priorities) if p != Retriever.Priority.ignore])

@@ -13,6 +13,37 @@ import threading
 from lazyllm.thirdparty import charset_normalizer
 
 class LazyLLMReaderBase(ModuleBase, metaclass=LazyLLMRegisterMetaClass):
+    """
+基础文档读取器类，提供文档加载的基本接口。继承自 ModuleBase，使用 LazyLLMRegisterMetaClass 作为元类。
+
+Args:
+    *args: 位置参数，保留给子类或父类使用。
+    return_trace (bool): 是否返回处理过程的追踪信息，默认为 True。
+    **kwargs: 关键字参数，保留给子类或父类使用。
+
+
+Examples:
+
+    from lazyllm.tools.rag.readers.readerBase import LazyLLMReaderBase
+    from lazyllm.tools.rag.doc_node import DocNode
+    from typing import Iterable
+
+    class CustomReader(LazyLLMReaderBase):
+        def _lazy_load_data(self, file_paths: list, **kwargs) -> Iterable[DocNode]:
+            for file_path in file_paths:
+                # Process each file and yield DocNode
+                content = self._read_file(file_path)
+                yield DocNode(
+                    text=content,
+                    metadata={"source": file_path}
+                )
+
+    # Create reader instance
+    reader = CustomReader(return_trace=True)
+
+    # Load documents
+    documents = reader.forward(file_paths=["doc1.txt", "doc2.txt"])
+    """
     post_action = None
 
     _encoding_cache = {}
@@ -39,6 +70,27 @@ class LazyLLMReaderBase(ModuleBase, metaclass=LazyLLMRegisterMetaClass):
     def detect_encoding(cls, file_path: Union[str, Path], fs: Optional['fsspec.AbstractFileSystem'] = None,  # noqa: C901
                         sample_size: int = 10000, use_cache: bool = True,
                         enable_chardet: bool = True) -> str:
+        """检测文件的编码。
+
+Args:
+    file_path (str): 文件路径。
+    fs (fsspec.AbstractFileSystem): 文件系统。
+    sample_size (int): 样本大小。
+    use_cache (bool): 是否使用缓存。
+    enable_chardet (bool): 是否启用 chardet。
+
+**Returns:**
+
+- str: 文件的编码。
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.tools.rag.readers import LazyLLMReaderBase
+    >>> reader = LazyLLMReaderBase()
+    >>> encoding = reader.detect_encoding("path/to/file.txt")
+    >>> print(encoding)
+    """
         if not isinstance(file_path, Path):
             file_path = Path(file_path)
 
@@ -148,11 +200,41 @@ class LazyLLMReaderBase(ModuleBase, metaclass=LazyLLMRegisterMetaClass):
 
     @classmethod
     def clear_encoding_cache(cls) -> None:
+        """清空编码缓存。
+
+Args:
+    file_path (str): 文件路径。
+    fs (fsspec.AbstractFileSystem): 文件系统。
+    sample_size (int): 样本大小。
+    use_cache (bool): 是否使用缓存。
+    enable_chardet (bool): 是否启用 chardet。
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.tools.rag.readers import LazyLLMReaderBase
+    >>> reader = LazyLLMReaderBase()
+    >>> reader.clear_encoding_cache()
+    """
         with cls._cache_lock:
             cls._encoding_cache.clear()
 
     @classmethod
     def get_encoding_cache_stats(cls) -> dict:
+        """获取编码缓存统计信息。
+
+**Returns:**
+
+- dict: 编码缓存统计信息。
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.tools.rag.readers import LazyLLMReaderBase
+    >>> reader = LazyLLMReaderBase()
+    >>> stats = reader.get_encoding_cache_stats()
+    >>> print(stats)
+    """
         with cls._cache_lock:
             return {
                 'cache_size': len(cls._encoding_cache),
@@ -188,6 +270,17 @@ config.add('use_encoding_cache', bool, True, 'USE_ENCODING_CACHE',
 
 
 class TxtReader(LazyLLMReaderBase):
+    """TxtReader 类用于从文本文件中加载内容，并将其封装为 `DocNode` 对象列表。
+
+该类继承自 `LazyLLMReaderBase`，主要功能包括：
+
+- 支持指定文本编码读取文件；
+- 可选返回加载过程的跟踪信息；
+
+Args:
+    encoding (str): 文件读取的文本编码，默认值为 'utf-8'。
+    return_trace (bool): 是否返回加载过程的跟踪信息，默认值为 True。
+"""
     def __init__(self, encoding: Optional[str] = None, return_trace: bool = True,
                  auto_detect_encoding: bool = config['auto_detect_encoding'],
                  enable_chardet: bool = config['enable_chardet'],

@@ -6,6 +6,12 @@ from .readerBase import LazyLLMReaderBase
 from ..doc_node import DocNode
 
 class VideoAudioReader(LazyLLMReaderBase):
+    """用于从视频或音频文件中提取语音内容的读取器，依赖 OpenAI 的 Whisper 模型进行语音识别。
+
+Args:
+    model_version (str): Whisper 模型的版本（如 "base", "small", "medium", "large"），默认为 "base"。
+    return_trace (bool): 是否返回处理过程的 trace，默认为 True。
+"""
     def __init__(self, model_version: str = 'base', return_trace: bool = True) -> None:
         super().__init__(return_trace=return_trace)
         self._model_version = model_version

@@ -9,16 +9,38 @@ from .similarity import registered_similarities
 # ---------------------------------------------------------------------------- #
 
 class DefaultIndex(IndexBase):
+    """默认的索引实现，负责通过 embedding 和文本相似度在底层存储中查询、更新和删除文档节点。支持多种相似度度量方式，并在必要时对查询和节点进行 embedding 计算与更新。
+
+Args:
+    embed (Dict[str, Callable]): 用于生成查询和节点 embedding 的字典，key 是 embedding 名称，value 是接收字符串返回向量的函数。
+    store (StoreBase): 底层存储，用于持久化和检索 DocNode 节点。
+    **kwargs: 预留扩展参数。
+
+**Returns:**
+
+- DefaultIndex: 默认索引实例。
+"""
     def __init__(self, embed: Dict[str, Callable], store, **kwargs):
         self.embed = embed
         self.store = store
 
     @override
     def update(self, nodes: List[DocNode]) -> None:
+        """根据提供的节点列表更新索引中的内容。具体行为由子类或外部实现填充（此处为空实现，需在实际使用中覆盖/扩展）。
+
+Args:
+    nodes (List[DocNode]): 需要更新（新增或替换）的文档节点列表。
+"""
         pass
 
     @override
     def remove(self, uids: List[str], group_name: Optional[str] = None) -> None:
+        """从索引中删除指定 UID 的节点，可选指定分组名称以限定作用域。当前为空实现，使用时需要补全逻辑。
+
+Args:
+    uids (List[str]): 要删除的节点唯一标识列表。
+    group_name (Optional[str]): 可选的分组名称，用于限定删除范围。
+"""
         pass
 
     @override
@@ -33,6 +55,22 @@ class DefaultIndex(IndexBase):
         filters: Optional[Dict[str, List]] = None,
         **kwargs,
     ) -> List[DocNode]:
+        """执行一次查询，支持 embedding 和文本两种模式，依据相似度函数过滤并返回符合条件的 DocNode 结果。
+
+Args:
+    query (str): 原始查询文本。
+    group_name (str): 要检索的节点组名称。
+    similarity_name (str): 使用的相似度度量名称，必须在 registered_similarities 中注册。
+    similarity_cut_off (Union[float, Dict[str, float]]): 相似度阈值或每个 embedding 对应的阈值字典，用于过滤结果。
+    topk (int): 每个相似度渠道最多保留的候选数量。
+    embed_keys (Optional[List[str]]): 指定用于 embedding 的 key 列表，若为空则使用所有可用 embedding。
+    filters (Optional[Dict[str, List]]): 额外的节点过滤器，应用在计算相似度前。
+    **kwargs: 传递给相似度函数的额外参数。
+
+**Returns:**
+
+- list: List[DocNode]: 经过相似度计算与阈值过滤后去重的文档节点列表。
+"""
         if similarity_name not in registered_similarities:
             raise ValueError(
                 f'{similarity_name} not registered, please check your input. '

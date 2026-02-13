@@ -16,6 +16,31 @@ else:
 
 
 class KBCLoadChunkFile(kbc):
+    """加载分块文件算子。
+
+该算子从指定路径加载JSON或JSONL格式的分块文件。
+支持从知识库清洗流程中生成的分块结果文件。
+
+Args:
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含分块数据的数据：
+    - _chunks_data: 分块数据列表
+    - _chunk_path: 分块文件路径
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    loader = kbc.KBCLoadChunkFile()
+
+    data = {'chunk_path': '/path/to/chunks.json'}
+    result = loader(data)
+    # Returns: {'chunk_path': '/path/to/chunks.json', '_chunks_data': [...], '_chunk_path': '/path/to/chunks.json'}
+    ```
+    """
     def __init__(self, **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
 
@@ -56,6 +81,32 @@ class KBCLoadChunkFile(kbc):
 
 
 class KBCPreprocessText(kbc):
+    """文本预处理算子。
+
+该算子对加载的分块文本进行预处理，根据长度过滤分块。
+只保留长度在指定范围内的分块，避免处理过短或过长的文本。
+
+Args:
+    min_length (int): 最小文本长度，默认为 100。
+    max_length (int): 最大文本长度，默认为 200000。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含预处理结果的数据：
+    - _processed_chunks: 预处理后的分块列表
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    processor = kbc.KBCPreprocessText(min_length=50, max_length=10000)
+
+    data = {'_chunks_data': [{'cleaned_chunk': 'Short text.'}, {'cleaned_chunk': 'A much longer text that meets the length requirements and will be processed.'}]}
+    result = processor(data, text_field='cleaned_chunk')
+    # Returns: {'_chunks_data': [...], '_processed_chunks': [{'text': 'A much longer text...', 'original_data': {...}}]}
+    ```
+    """
     def __init__(self, min_length: int = 100, max_length: int = 200000, **kwargs):
         super().__init__(_concurrency_mode='process', **kwargs)
         self.min_length = min_length
@@ -90,6 +141,32 @@ class KBCPreprocessText(kbc):
 
 
 class KBCExtractInfoPairs(kbc):
+    """信息对提取算子。
+
+该算子从预处理后的文本中提取信息对，用于生成多跳问答。
+根据语言类型（中文或英文）使用不同的句子分割符，
+提取前提-中间-结论三元组和相关上下文。
+
+Args:
+    lang (str): 语言类型，'en' 表示英文，'zh' 表示中文，默认为 'en'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含信息对的数据：
+    - _info_pairs: 信息对列表，每个包含 premise、intermediate、conclusion 和 related_contexts
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    extractor = kbc.KBCExtractInfoPairs(lang='en')
+
+    data = {'_processed_chunks': [{'text': 'First sentence. Second sentence. Third sentence.', 'original_data': {}}]}
+    result = extractor(data)
+    # Returns: {'_processed_chunks': [...], '_info_pairs': [{'premise': 'First sentence', 'intermediate': 'Second sentence', 'conclusion': 'Third sentence', 'related_contexts': [], 'original_data': {}}]}
+    ```
+    """
     def __init__(self, lang: str = 'en', **kwargs):
         super().__init__(_concurrency_mode='process', **kwargs)
         self.lang = lang
@@ -133,6 +210,33 @@ class KBCExtractInfoPairs(kbc):
 
 
 class KBCGenerateMultiHopQA(kbc):
+    """多跳问答生成算子。
+
+该算子使用LLM根据提取的信息对生成多跳问答对。
+多跳问答需要多个推理步骤才能回答，适用于训练复杂的问答模型。
+
+Args:
+    llm: LLM服务实例，用于生成问答对。
+    lang (str): 语言类型，'en' 表示英文，'zh' 表示中文，默认为 'en'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含生成的问答结果的数据：
+    - _qa_results: 问答结果列表，每个包含 response 和 info_pair
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    # Assuming llm is an LLM service instance
+    generator = kbc.KBCGenerateMultiHopQA(llm=llm, lang='en')
+
+    data = {'_info_pairs': [{'premise': 'A', 'intermediate': 'B', 'conclusion': 'C', 'original_data': {}}]}
+    result = generator(data)
+    # Returns: {'_info_pairs': [...], '_qa_results': [{'response': {...}, 'info_pair': {...}}]}
+    ```
+    """
     def __init__(self, llm=None, lang: str = 'en', **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
 
@@ -188,6 +292,28 @@ class KBCGenerateMultiHopQA(kbc):
 
 @data_register('data.kbc', rewrite_func='forward', _concurrency_mode='process')
 def parse_qa_pairs(data: dict) -> dict:
+    """解析问答对函数。
+
+该函数解析LLM生成的问答响应，提取有效的问答对。
+支持多种响应格式（字典、列表、字符串），并将解析结果与原始数据合并。
+
+Args:
+    data (dict): 包含问答结果的数据。
+
+Returns:
+    dict: 包含解析后的问答对的数据：
+    - _qa_pairs: 解析后的问答对列表
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data.operators.knowledge_cleaning.kbc_multihop_qa_generator_batch import parse_qa_pairs
+
+    data = {'_qa_results': [{'response': {'question': 'What is AI?', 'answer': 'Artificial Intelligence'}, 'info_pair': {'original_data': {'id': 1}}}]}
+    result = parse_qa_pairs(data)
+    # Returns: {'_qa_results': [...], '_qa_pairs': [{'id': 1, 'qa_pairs': {'question': 'What is AI?', 'answer': 'Artificial Intelligence'}}]}
+    ```
+    """
     qa_results = data.get('_qa_results', [])
     if not qa_results:
         return {**data, '_qa_pairs': []}
@@ -278,6 +404,31 @@ def _save_enhanced_data(enhanced_data: list, output_path: str) -> None:
 
 
 class KBCSaveEnhanced(kbc):
+    """保存增强数据算子。
+
+该算子将生成的问答对与原始分块数据合并，保存为增强后的分块文件。
+支持指定输出目录，会保留原始文件的相对路径结构。
+
+Args:
+    output_dir (str, optional): 输出目录路径，默认为 None（保存到原文件所在目录）。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含保存结果的数据：
+    - enhanced_chunk_path: 增强后的分块文件路径
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    saver = kbc.KBCSaveEnhanced(output_dir='./enhanced_output')
+
+    data = {'_chunk_path': '/path/to/chunks.json', '_chunks_data': [{'id': 1, 'text': 'chunk1'}], '_qa_pairs': [{'id': 1, 'qa_pairs': {'question': 'Q1', 'answer': 'A1'}}]}
+    result = saver(data, output_key='enhanced_chunk_path')
+    # Returns: {'enhanced_chunk_path': './enhanced_output/path/to/chunks_enhanced.json'}
+    ```
+    """
     def __init__(self, output_dir: Optional[str] = None, **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
         self.output_dir = output_dir

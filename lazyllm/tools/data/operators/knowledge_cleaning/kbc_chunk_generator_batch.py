@@ -14,6 +14,38 @@ else:
 
 
 class KBCLoadText(kbc):
+    """加载文本文件内容的算子。
+
+该算子从指定路径加载文本文件内容，支持多种文件格式：
+- .txt, .md, .xml: 直接读取文本内容
+- .json, .jsonl: 从指定的文本字段中提取内容并合并
+
+Args:
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含加载结果的数据：
+    - _text_content: 加载的文本内容
+    - _load_error: 加载错误信息（如果有）
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    loader = kbc.KBCLoadText()
+
+    # Load text file
+    data = {'text_path': '/path/to/document.txt'}
+    result = loader(data)
+    # Returns: {'text_path': '/path/to/document.txt', '_text_content': 'file content...'}
+
+    # Load JSON file
+    data = {'text_path': '/path/to/data.json'}
+    result = loader(data)
+    # Returns: {'text_path': '/path/to/data.json', '_text_content': 'extracted text...'}
+    ```
+    """
     def __init__(self, **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
 
@@ -81,6 +113,38 @@ class KBCLoadText(kbc):
 
 
 class KBCChunkText(kbc):
+    """文本分块算子。
+
+该算子将长文本分割成小块（chunks），支持多种分块策略：
+- token: 基于Token数量分块
+- sentence: 基于句子边界分块
+- semantic: 基于语义相似度分块
+- recursive: 递归分块
+
+Args:
+    chunk_size (int): 每个块的最大大小，默认为 512。
+    chunk_overlap (int): 块之间的重叠大小，默认为 50。
+    split_method (str): 分块方法，可选 'token', 'sentence', 'semantic', 'recursive'，默认为 'token'。
+    tokenizer_name (str): 使用的tokenizer名称，默认为 'bert-base-uncased'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含分块结果的数据：
+    - _chunks: 分块后的文本列表
+    - _chunk_error: 分块错误信息（如果有）
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    chunker = kbc.KBCChunkText(chunk_size=512, chunk_overlap=50, split_method='token')
+
+    data = {'_text_content': 'Long text content that needs to be chunked...'}
+    result = chunker(data)
+    # Returns: {'_text_content': 'Long text content...', '_chunks': ['chunk1', 'chunk2', ...]}
+    ```
+    """
     def __init__(
         self,
         chunk_size: int = 512,
@@ -180,6 +244,31 @@ class KBCChunkText(kbc):
 
 
 class KBCSaveChunks(kbc):
+    """保存文本分块结果的算子。
+
+该算子将分块后的文本保存为JSON文件，每个分块作为一个JSON对象。
+支持指定输出目录，会保留原始文件的相对路径结构。
+
+Args:
+    output_dir (str, optional): 输出目录路径，默认为 None（保存到原文件所在目录的 'extract' 子目录）。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含保存结果的数据：
+    - chunk_path: 保存的JSON文件路径
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    saver = kbc.KBCSaveChunks(output_dir='./output')
+
+    data = {'text_path': '/path/to/doc.txt', '_chunks': ['chunk1', 'chunk2']}
+    result = saver(data)
+    # Returns: {'text_path': '/path/to/doc.txt', 'chunk_path': './output/path/to/doc_chunk.json'}
+    ```
+    """
     def __init__(self, output_dir: Optional[str] = None, **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
         self.output_dir = output_dir

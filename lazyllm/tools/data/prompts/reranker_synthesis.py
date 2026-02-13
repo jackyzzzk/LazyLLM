@@ -1,18 +1,8 @@
-'''
-Prompts for Reranker Synthesis Operators
-
-This module contains prompt templates for generating reranker training data.
-该模块包含用于生成 Reranker 训练数据的提示词模板。
-'''
 from typing import List, Optional
 from .base_prompt import PromptABC
 
 
 class RerankerQueryGeneratorPrompt(PromptABC):
-    '''
-    Prompt template for generating queries from passages for reranker training.
-    用于从段落生成查询的提示词模板（用于 Reranker 训练）。
-    '''
 
     def __init__(self, lang: str = 'zh'):
         self.lang = lang
@@ -101,10 +91,6 @@ Return in the following JSON format:
 
 
 class RerankerNegativeGeneratorPrompt(PromptABC):
-    '''
-    Prompt template for generating confusing negative samples.
-    用于生成易混淆负样本的提示词模板。
-    '''
 
     def __init__(self, lang: str = 'zh'):
         self.lang = lang

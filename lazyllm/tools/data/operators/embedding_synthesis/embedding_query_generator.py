@@ -27,6 +27,32 @@ def _clean_json_block(item: str) -> str:
     )
 
 class EmbeddingGenerateQueries(embedding):
+    """使用 LLM 生成查询的算子。
+
+该算子调用语言模型服务，基于构建的提示生成查询。返回 JSON 格式的查询响应。
+
+Args:
+    llm: LLM 服务实例，用于生成查询。
+    num_queries (int): 要生成的查询数量，默认为 3。
+    lang (str): 语言，'zh' 表示中文，'en' 表示英文，默认为 'zh'。
+    query_types (List[str], optional): 查询类型列表，默认为 ['factual', 'semantic', 'inferential']。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 输入数据，添加了 '_query_response' 字段包含生成的查询响应。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    # Assuming llm is an LLM service instance
+    generator = embedding.EmbeddingGenerateQueries(llm=llm, lang='zh')
+    data = {'_query_prompt': 'Generate queries for: machine learning tutorial'}
+    result = generator(data)
+    # Returns data with '_query_response' field containing JSON queries
+    ```
+    """
     def __init__(
         self,
         llm=None,
@@ -87,6 +113,29 @@ class EmbeddingGenerateQueries(embedding):
 
 
 class EmbeddingParseQueries(embedding):
+    """解析生成的查询的算子。
+
+该算子解析 LLM 生成的查询响应，将每条查询展开为独立的数据记录。
+
+Args:
+    input_key (str): 输入字段名，默认为 'passage'。
+    output_query_key (str): 输出查询字段名，默认为 'query'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    List[dict]: 解析后的查询列表，每个查询为一个独立的数据记录。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import embedding
+
+    parser = embedding.EmbeddingParseQueries(input_key='passage', output_query_key='query')
+    data = {'_query_response': '[{"query": "what is ML?", "type": "factual"}]', 'passage': 'Machine learning is...'}
+    result = parser(data)
+    # Returns list of expanded query records with 'query' and 'pos' fields
+    ```
+    """
     def __init__(
         self,
         input_key: str = 'passage',

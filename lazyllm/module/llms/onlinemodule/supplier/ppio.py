@@ -8,6 +8,26 @@ from ..base import OnlineChatModuleBase
 # PPIO (Paiou Cloud) online model module.
 # PPIO provides OpenAI-compatible API interface, supporting both streaming and non-streaming responses.
 class PPIOChat(OnlineChatModuleBase):
+    """PPIO（派欧云）在线聊天模块，继承自 OnlineChatModuleBase。  
+封装了对 PPIO (Paiou Cloud) API 的调用，用于进行多轮问答交互。默认使用模型 `deepseek/deepseek-v3.2`，支持流式输出和调用链追踪。PPIO 提供 OpenAI 兼容的 API 接口。
+
+Args:
+    model (str): 使用的模型名称，默认为 `deepseek/deepseek-v3.2`。
+    base_url (str): API 基础 URL，默认为 "https://api.ppinfra.com/openai"。
+    api_key (Optional[str]): PPIO API Key，若未提供，则从 lazyllm.config['ppio_api_key'] 读取。
+    stream (bool): 是否启用流式输出，默认为 True。
+    return_trace (bool): 是否返回调用链追踪信息，默认为 False。
+    **kwargs: 其他传递给基类 OnlineChatModuleBase 的参数。
+
+
+Examples:
+    >>> import lazyllm
+    >>> # Set environment variable: export LAZYLLM_PPIO_API_KEY=your_api_key
+    >>> # Or create config file ~/.lazyllm/config.json: {"ppio_api_key": "your_api_key"}
+    >>> chat = lazyllm.OnlineChatModule(source='ppio', model='deepseek/deepseek-v3.2')
+    >>> response = chat('Hello, how are you?')
+    >>> print(response)
+    """
     TRAINABLE_MODEL_LIST = []
     NO_PROXY = False
 

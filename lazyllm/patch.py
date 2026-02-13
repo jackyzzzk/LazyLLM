@@ -82,6 +82,21 @@ def patch_httpx():
 
 
 class LazyPatchLoader(importlib.abc.Loader):
+    """延迟补丁加载器，用于在模块加载时自动应用补丁。
+
+``LazyPatchLoader`` 是一个导入系统加载器，它在模块执行时自动为请求库和httpx库应用补丁。
+这个加载器包装了原始的模块规范，在模块执行完成后自动调用补丁函数。
+
+Args:
+    original_spec (ModuleSpec): 原始模块的规范对象，包含模块的加载信息和路径。
+
+功能:
+
+- 在模块加载时自动设置正确的包和路径属性
+- 执行原始加载器的模块执行逻辑
+- 在模块执行完成后自动应用requests和httpx库的补丁
+
+"""
     PATCHS = {
         'httpx': patch_httpx,
     }
@@ -95,6 +110,16 @@ class LazyPatchLoader(importlib.abc.Loader):
         return None
 
     def exec_module(self, module):
+        """执行模块的加载和初始化过程。
+
+此方法是导入系统加载器的核心方法，负责执行模块的代码并初始化模块对象。
+在LazyPatchLoader中，此方法会先设置模块的包和路径属性，然后执行原始加载器的模块执行逻辑，
+最后自动为requests和httpx库应用补丁。
+
+Args:
+    module (ModuleType): 要执行的模块对象。
+
+"""
         if self.original_spec.submodule_search_locations is not None:
             module.__package__ = self.original_spec.name
         elif '.' in self.original_spec.name:
@@ -110,7 +135,34 @@ class LazyPatchLoader(importlib.abc.Loader):
         LazyPatchLoader.PATCHED.add(self._package_name)
 
 class LazyPatchFinder(importlib.abc.MetaPathFinder):
+    """延迟补丁查找器，用于在导入时拦截特定模块并应用补丁。
+
+``LazyPatchFinder`` 是一个元路径查找器，它在导入过程中拦截对'requests'和'httpx'模块的导入请求，
+并使用自定义的LazyPatchLoader来加载这些模块，从而在模块加载时自动应用补丁。
+
+**Note:**
+
+- 此查找器只在模块尚未导入时生效
+- 如果模块已经导入，会直接调用patch_requests_and_httpx()函数
+- 支持模块的原始属性和路径保持完整
+"""
     def find_spec(self, fullname, path, target=None):
+        """查找并返回模块的规范对象，用于自定义模块加载过程。
+
+此方法是MetaPathFinder的核心方法，负责在导入过程中查找指定模块的规范对象。
+在LazyPatchFinder中，它专门拦截'requests'和'httpx'模块的导入请求，使用自定义的LazyPatchLoader来包装原始模块规范。
+
+Args:
+    fullname (str): 要导入的完整模块名称
+    path (list): 搜索路径列表，对于顶级模块为None
+    target (module, optional): 目标模块对象（重载时使用）
+
+**Returns:**
+
+- 对于'requests'和'httpx'模块：返回使用LazyPatchLoader包装的模块规范
+- 对于其他模块：返回None，让其他查找器继续处理
+
+"""
         if fullname in LazyPatchLoader.PATCHS and fullname not in LazyPatchLoader.PATCHED:
             if self in sys.meta_path: sys.meta_path.remove(self)
             original_spec = importlib.util.find_spec(fullname)

@@ -282,12 +282,38 @@ locals = Locals()
 
 
 def init_session(sid: Optional[str] = None):
+    """
+初始化一个新的会话环境。
+
+该函数会为当前上下文初始化全局与局部的 session id，通常用于隔离不同执行流程中的状态，避免相互污染。
+
+
+Examples:
+
+    from lazyllm.common import init_session
+
+    init_session()
+    """
     sid = globals._init_sid(sid)
     locals._init_sid(sid)
     LOG.info(f'Session {sid} inited!')
     return sid
 
 def teardown_session():
+    """
+销毁当前会话环境。
+
+该函数会清空当前会话中保存的全局和局部状态，通常与 init_session 成对使用，用于释放资源和避免状态泄漏。
+
+
+Examples:
+
+    from lazyllm.common import init_session, teardown_session
+
+    init_session()
+    # ...
+    teardown_session()
+    """
     sid = globals._sid
     globals.clear()
     locals.clear()
@@ -295,6 +321,19 @@ def teardown_session():
 
 @contextmanager
 def new_session(sid: Optional[str] = None):
+    """
+创建一个新的会话上下文（上下文管理器）。
+
+进入上下文时会自动初始化 session，退出上下文时会自动清理 session。适合用于临时、隔离的执行场景。
+
+
+Examples:
+
+    from lazyllm.common import new_session
+
+    with new_session():
+        pass
+    """
     sid = init_session(sid)
     try:
         yield

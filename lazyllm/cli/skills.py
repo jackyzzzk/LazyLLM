@@ -424,6 +424,7 @@ def _download_repo(tmp_dir: Path, timeout: int = 300):
 
 @dataclass
 class AgentConfig:
+    """AgentConfig(name: str, display_name: str, home_dir: pathlib.Path | None, project_dir: pathlib.Path, supports_home: bool)"""
     name: str
     display_name: str
     home_dir: Path | None

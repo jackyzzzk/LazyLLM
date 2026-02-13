@@ -14,6 +14,16 @@ from .readerBase import get_default_fs, is_default_fs, _RichReader
 
 
 class DocxReader(_RichReader):
+    """docx格式文件解析器，从 `.docx` 文件中读取文本内容并封装为文档节点（DocNode）列表。
+
+Args:
+    file (Path): `.docx` 文件路径。
+    fs (Optional[AbstractFileSystem]): 可选的文件系统对象，支持自定义读取方式。
+
+**Returns:**
+
+- List[DocNode]: 包含文档中所有文本内容的节点列表。
+"""
     def __init__(self, split_doc: Optional[bool] = False, extra_info: Optional[Dict] = None,
                  extract_process: Optional[Callable] = None, post_func: Optional[Callable] = None,
                  extract_global_info: bool = True, image_save_path: Optional[str] = None,

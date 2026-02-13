@@ -46,6 +46,28 @@ def [函数名](参数) -> 返回类型:
 '''
 
 class CodeGenerator(ModuleBase):
+    """代码生成模块。
+
+该模块基于用户提供的提示词生成代码，会根据提示内容自动选择中文或英文的系统提示词，并从输出中提取 Python 代码片段。
+
+`__init__(self, base_model, prompt="")`
+初始化代码生成器。
+
+Args:
+    base_model (Union[str, TrainableModule, OnlineChatModuleBase]): 模型路径字符串，或已初始化的模型实例。
+    prompt (str): 用户自定义的代码生成提示词，可为中文或英文。
+
+
+Examples:
+    >>> from lazyllm.components import CodeGenerator
+    >>> generator = CodeGenerator(base_model="deepseek-coder", prompt="写一个Python函数，计算斐波那契数列。")
+    >>> result = generator("请给出实现代码")
+    >>> print(result)
+    ... def fibonacci(n):
+    ...     if n <= 1:
+    ...         return n
+    ...     return fibonacci(n-1) + fibonacci(n-2)
+    """
     def __init__(
         self,
         base_model: Union[str, TrainableModule, OnlineChatModuleBase],
@@ -59,6 +81,16 @@ class CodeGenerator(ModuleBase):
             self._m = base_model.share(self._prompt)
 
     def choose_prompt(self, prompt: str):
+        """根据输入的提示文本内容选择合适的代码生成提示模板。
+如果提示中包含中文字符，则返回中文提示模板；否则返回英文提示模板。
+
+Args:
+    prompt (str): 输入的提示文本。
+
+**Returns:**
+
+- str: 选择的代码生成提示模板字符串。
+"""
         # Use chinese prompt if intent elements have chinese character, otherwise use english version
         for ele in prompt:
             # chinese unicode range

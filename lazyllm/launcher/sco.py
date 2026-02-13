@@ -22,10 +22,37 @@ lazyllm.config.add('sco_resource_type', str, 'N3lS.Ii.I60', 'SCO_RESOURCE_TYPE',
 
 @final
 class ScoLauncher(LazyLLMLaunchersBase):
+    """此类是 ``LazyLLMLaunchersBase`` 的子类，作为SCO (Sensecore)启动器。
+
+具体而言，它提供了启动和配置 SCO 作业的方法，包括指定分区、工作空间名称、框架类型、节点数量、进程数量、GPU 数量以及是否使用 torchrun 等参数。
+
+Args:
+    partition (str): 要使用的分区。默认为 ``None``，此时将使用 ``lazyllm.config['partition']`` 中的默认分区。该配置可通过设置环境变量来生效，如 ``export LAZYLLM_SLURM_PART=a100`` 。
+    workspace_name (str): SCO 上的工作空间名称。默认为 ``lazyllm.config['sco.workspace']`` 中的配置。该配置可通过设置环境变量来生效，如 ``export LAZYLLM_SCO_WORKSPACE=myspace`` 。
+    framework (str): 要使用的框架类型，例如 ``pt`` 代表 PyTorch。默认为 ``pt``。
+    nnode  (int): 要使用的节点数量。默认为 ``1``。
+    nproc (int): 每个节点要使用的进程数量。默认为 ``1``。
+    ngpus: (int): 每个节点要使用的 GPU 数量。默认为 ``1``, 使用1块 GPU。
+    torchrun (bool): 是否使用 ``torchrun`` 启动作业。默认为 ``False``。
+    sync (bool): 是否同步执行作业。默认为 ``True``，否则为异步执行。
+
+
+Examples:
+    >>> import lazyllm
+    >>> launcher = lazyllm.launchers.sco(partition='partition_name', nnode=1, nproc=1, ngpus=1, sync=False)
+    """
     all_processes = defaultdict(list)
 
     @final
     class Job(Job):
+        """通用任务调度执行类。
+该类用于封装一个通过启动器（launcher）调度执行的任务，支持命令包装、同步控制、返回值提取、命令固定等功能。
+
+Args:
+    cmd (LazyLLMCMD): 要执行的命令对象。
+    launcher (Any): 启动器实例，用于实际任务调度执行。
+    sync (bool): 是否为同步执行，默认为 True。
+"""
         def __init__(self, cmd, launcher, *, sync=True):
             super(__class__, self).__init__(cmd, launcher, sync=sync)
             # SCO job name must start with a letter

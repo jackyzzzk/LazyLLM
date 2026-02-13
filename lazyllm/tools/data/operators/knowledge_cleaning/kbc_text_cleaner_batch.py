@@ -15,6 +15,31 @@ else:
 
 
 class KBCLoadRAWChunkFile(kbc):
+    """加载原始分块文件算子。
+
+该算子从指定路径加载包含原始分块（raw_chunk）的JSON或JSONL文件。
+用于知识库清洗流程中加载需要清洗的原始分块数据。
+
+Args:
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含原始分块数据的数据：
+    - _chunks_data: 原始分块数据列表
+    - _chunk_path: 分块文件路径
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    loader = kbc.KBCLoadRAWChunkFile()
+
+    data = {'chunk_path': '/path/to/raw_chunks.json'}
+    result = loader(data)
+    # Returns: {'chunk_path': '/path/to/raw_chunks.json', '_chunks_data': [{'raw_chunk': '...'}], '_chunk_path': '/path/to/raw_chunks.json'}
+    ```
+    """
     def __init__(self, **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
 
@@ -52,6 +77,33 @@ class KBCLoadRAWChunkFile(kbc):
 
 
 class KBCGenerateCleanedText(kbc):
+    """生成清洗后文本的算子。
+
+该算子使用LLM对原始分块文本进行清洗，去除噪声、格式化内容。
+支持多语言，当LLM调用失败时会使用原始文本作为回退。
+
+Args:
+    llm: LLM服务实例，用于清洗文本。
+    lang (str): 语言类型，'en' 表示英文，'zh' 表示中文，默认为 'en'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含清洗结果的数据：
+    - _cleaned_results: 清洗结果列表，每个包含 response、raw_chunk 和 original_item
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    # Assuming llm is an LLM service instance
+    cleaner = kbc.KBCGenerateCleanedText(llm=llm, lang='en')
+
+    data = {'_chunks_data': [{'raw_chunk': 'Noisy text with errors...'}]}
+    result = cleaner(data)
+    # Returns: {'_chunks_data': [...], '_cleaned_results': [{'response': 'Cleaned text', 'raw_chunk': '...', 'original_item': {...}}]}
+    ```
+    """
     def __init__(self, llm=None, lang: str = 'en', **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
         self.prompts = KnowledgeCleanerPrompt(lang=lang)
@@ -107,6 +159,28 @@ class KBCGenerateCleanedText(kbc):
 
 @data_register('data.kbc', rewrite_func='forward', _concurrency_mode='process')
 def extract_cleaned_content(data: dict) -> dict:
+    """提取清洗内容函数。
+
+该函数从LLM清洗结果中提取清洗后的文本内容，处理不同的响应格式。
+支持从标签 <cleaned_start> 和 <cleaned_end> 之间提取内容。
+
+Args:
+    data (dict): 包含清洗结果的数据。
+
+Returns:
+    dict: 包含提取后清洗内容的数据：
+    - _cleaned_chunks: 清洗后的分块列表，每个包含 raw_chunk、cleaned_chunk 和 original_item
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data.operators.knowledge_cleaning.kbc_text_cleaner_batch import extract_cleaned_content
+
+    data = {'_cleaned_results': [{'response': '<cleaned_start>Clean text<cleaned_end>', 'raw_chunk': 'raw', 'original_item': {}}]}
+    result = extract_cleaned_content(data)
+    # Returns: {'_cleaned_results': [...], '_cleaned_chunks': [{'raw_chunk': 'raw', 'cleaned_chunk': 'Clean text', 'original_item': {}}]}
+    ```
+    """
     cleaned_results = data.get('_cleaned_results', [])
     if not cleaned_results:
         return {**data, '_cleaned_chunks': []}
@@ -189,6 +263,31 @@ def _get_save_output_path(chunk_path: str, output_dir: Optional[str]) -> str:
 
 
 class KBCSaveCleaned(kbc):
+    """保存清洗后数据算子。
+
+该算子将清洗后的分块数据保存为JSON文件，保留原始分块和清洗后分块的对应关系。
+支持指定输出目录，会保留原始文件的相对路径结构。
+
+Args:
+    output_dir (str, optional): 输出目录路径，默认为 None（保存到原文件所在目录）。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含保存结果的数据：
+    - cleaned_chunk_path: 清洗后的分块文件路径
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    saver = kbc.KBCSaveCleaned(output_dir='./cleaned_output')
+
+    data = {'_chunk_path': '/path/to/raw_chunks.json', '_cleaned_chunks': [{'raw_chunk': 'raw', 'cleaned_chunk': 'cleaned'}]}
+    result = saver(data, output_key='cleaned_chunk_path')
+    # Returns: {'cleaned_chunk_path': './cleaned_output/path/to/raw_chunks_cleaned.json'}
+    ```
+    """
     def __init__(self, output_dir: Optional[str] = None, **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
         self.output_dir = output_dir

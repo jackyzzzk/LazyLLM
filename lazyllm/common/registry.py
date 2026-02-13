@@ -23,6 +23,22 @@ from abc import ABCMeta
 # 5. allowed to omit the group name if the group name appears in the name
 #    >>> ld.a
 class LazyDict(dict):
+    """一个为懒惰的程序员设计的特殊字典类。支持多种便捷的访问和操作方式。
+
+特性：
+
+1. 使用点号代替['str']访问字典元素 
+2. 支持首字母小写来使语句更像函数调用
+3. 当字典只有一个元素时支持直接调用
+4. 支持动态默认键
+5. 如果组名出现在名称中，允许省略组名
+
+Args:
+    name (str): 字典的名称，默认为空字符串。
+    base: 基类引用，默认为None。
+    *args: 位置参数，传递给dict父类。
+    **kw: 关键字参数，传递给dict父类。
+"""
     def __init__(self, name='', base=None, *args, **kw):
         super(__class__, self).__init__(*args, **kw)
         self._default: Optional[str] = None
@@ -66,6 +82,14 @@ class LazyDict(dict):
         return self[self._match(key)]
 
     def remove(self, key):
+        """从字典中移除指定的键值对。
+
+Args:
+    key (str): 要移除的键。支持与__getattr__相同的键匹配规则，包括首字母小写和组名省略等特性。
+
+注意:
+    如果找不到匹配的键，将抛出AttributeError异常。
+"""
         super(__class__, self).pop(self._match(key))
 
     def __call__(self, *args, **kwargs):
@@ -73,6 +97,15 @@ class LazyDict(dict):
         return (self.default if self._default else self[list(self.keys())[0]])(*args, **kwargs)
 
     def set_default(self, key: str):
+        """设置字典的默认键。设置后可以通过.default属性访问该键对应的值。
+
+Args:
+    key (str): 要设置为默认的键名。
+
+注意:
+    - key必须是字符串类型
+    - 设置后可以通过.default访问，或在字典只有一个元素时直接调用
+"""
         assert isinstance(key, str), 'default key must be str'
         self._default = key.lower()
 
@@ -148,6 +181,35 @@ def bind_to_instance(func):
     return wrapper
 
 class Register(object):
+    """LazyLLM提供了一套组件注册机制，允许将任意函数注册为LazyLLM的Component。通过注册器提供的分组机制，注册后的函数可在任意位置通过分组索引进行调用，无需显式导入。
+
+<span style="font-size: 18px;">&ensp;**`lazyllm.components.register(cls, *, rewrite_func)→ 装饰器`**</span>
+
+该函数调用后返回一个装饰器，将被装饰函数包装为Component并注册到名为cls的分组中。
+
+Args:
+    base (type): 基类
+    fnames (Union[str, List[str]]): 要重写的函数名或函数名列表
+    template (str, optional): 注册模板字符串，默认为标准注册模板
+    default_group (str, optional): 默认组名，默认为None
+
+
+Examples:
+    >>> import lazyllm
+    >>> @lazyllm.component_register('mygroup')
+    ... def myfunc(input):
+    ...    return input
+    ...
+    >>> lazyllm.mygroup.myfunc()(1)
+    1
+    >>> @lazyllm.component_register.cmd('mygroup')
+    ... def mycmdfunc(input):
+    ...     return f'echo {input}'
+    ...
+    >>> lazyllm.mygroup.mycmdfunc()(1)
+    PID: 2024-06-01 00:00:00 lazyllm INFO: (lazyllm.launcher) Command: echo 1
+    PID: 2024-06-01 00:00:00 lazyllm INFO: (lazyllm.launcher) PID: 1
+    """
     def __init__(self, base, fnames, template: str = reg_template, default_group: Optional[str] = None,
                  allowed_parameter: Optional[Union[str, List[str]]] = None):
         self.basecls = base
@@ -221,4 +283,9 @@ class Register(object):
         return impl
 
     def new_group(self, group_name):
+        """创建一个新的ComponentGroup。新建的group会自动加入到__builtin__中，无需import即可在任一位置访问到该group。
+
+Args:
+    group_name (str): 待创建的group的名字
+"""
         return type(f'LazyLLM{group_name}Base', (self.basecls,), {})

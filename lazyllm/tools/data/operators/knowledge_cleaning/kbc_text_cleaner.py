@@ -12,6 +12,33 @@ else:
 
 
 class KBCGenerateCleanedTextSingle(kbc):
+    """单条文本清洗生成算子。
+
+该算子使用LLM对单条原始文本进行清洗，去除噪声、格式化内容。
+适用于单条数据的实时清洗场景，当LLM调用失败时会使用原始文本作为回退。
+
+Args:
+    llm: LLM服务实例，用于清洗文本。
+    lang (str): 语言类型，'en' 表示英文，'zh' 表示中文，默认为 'en'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 包含清洗响应的数据：
+    - _cleaned_response: LLM的清洗响应
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    # Assuming llm is an LLM service instance
+    cleaner = kbc.KBCGenerateCleanedTextSingle(llm=llm, lang='en')
+
+    data = {'raw_chunk': 'Noisy text with errors...'}
+    result = cleaner(data, input_key='raw_chunk')
+    # Returns: {'raw_chunk': '...', '_cleaned_response': 'Cleaned text result'}
+    ```
+    """
 
     def __init__(self, llm=None, lang: str = 'en', **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
@@ -59,6 +86,28 @@ def extract_cleaned_content_single(
     data: dict,
     output_key: str = 'cleaned_chunk',
 ) -> dict:
+    """单条清洗内容提取函数。
+
+该函数从单条LLM清洗响应中提取清洗后的文本内容，处理不同的响应格式。
+支持从标签 <cleaned_start> 和 <cleaned_end> 之间提取内容，并清理中间字段。
+
+Args:
+    data (dict): 包含清洗响应的数据。
+    output_key (str): 输出字段名，默认为 'cleaned_chunk'。
+
+Returns:
+    dict: 包含提取后清洗内容的数据，添加了 output_key 指定的字段。
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data.operators.knowledge_cleaning.kbc_text_cleaner import extract_cleaned_content_single
+
+    data = {'_cleaned_response': '<cleaned_start>Clean text<cleaned_end>'}
+    result = extract_cleaned_content_single(data, output_key='cleaned_chunk')
+    # Returns: {'cleaned_chunk': 'Clean text'}
+    ```
+    """
     response = data.get('_cleaned_response', '')
 
     # Handle different response types from JsonFormatter

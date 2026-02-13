@@ -14,6 +14,18 @@ from lazyllm import LOG
 
 
 class SiliconFlowChat(OnlineChatModuleBase, FileHandlerBase):
+    """SiliconFlow 模块，继承自 OnlineChatModuleBase 和 FileHandlerBase。
+
+提供基于 SiliconFlow 平台的大语言模型对话能力，支持多种模型（包括视觉语言模型），并具备文件处理功能。
+
+Args:
+    base_url (str, optional): API 基础地址，默认为 "https://api.siliconflow.cn/v1/"
+    model (str, optional): 使用的模型名称，默认为 "Qwen/QwQ-32B"
+    api_key (str, optional): API 密钥，默认从配置项 lazyllm.config['siliconflow_api_key'] 中读取
+    stream (bool, optional): 是否启用流式输出，默认为 True
+    return_trace (bool, optional): 是否返回追踪信息，默认为 False
+    **kwargs: 其他模型参数
+"""
     VLM_MODEL_PREFIX = ['Qwen/Qwen2.5-VL-72B-Instruct', 'Qwen/Qwen3-VL-30B-A3B-Instruct', 'deepseek-ai/deepseek-vl2',
                         'Qwen/Qwen3-VL-30B-A3B-Thinking', 'THUDM/GLM-4.1V-9B-Thinking']
 
@@ -29,7 +41,6 @@ class SiliconFlowChat(OnlineChatModuleBase, FileHandlerBase):
         return 'You are an intelligent assistant provided by SiliconFlow. You are a helpful assistant.'
 
     def _validate_api_key(self):
-        '''Validate API Key by sending a minimal request'''
         try:
             # SiliconFlow validates API key using a minimal chat request
             models_url = urljoin(self._base_url, 'models')
@@ -40,6 +51,17 @@ class SiliconFlowChat(OnlineChatModuleBase, FileHandlerBase):
 
 
 class SiliconFlowEmbed(LazyLLMOnlineEmbedModuleBase):
+    """SiliconFlow 向量嵌入模块，继承自 OnlineEmbeddingModuleBase。
+
+提供基于 SiliconFlow 平台的文本嵌入（Embedding）功能，支持将文本转换为向量表示。
+
+Args:
+    embed_url (str, optional): 嵌入 API 的 URL，默认为 "https://api.siliconflow.cn/v1/embeddings"
+    embed_model_name (str, optional): 使用的嵌入模型名称，默认为 "BAAI/bge-large-zh-v1.5"
+    api_key (str, optional): API 密钥，默认从配置项 lazyllm.config['siliconflow_api_key'] 中读取
+    batch_size (int, optional): 批处理大小，默认为 16
+    **kw: 其他嵌入模块参数
+"""
     def __init__(self, embed_url: str = 'https://api.siliconflow.cn/v1/embeddings',
                  embed_model_name: str = 'BAAI/bge-large-zh-v1.5', api_key: str = None,
                  batch_size: int = 16, **kw):
@@ -48,6 +70,19 @@ class SiliconFlowEmbed(LazyLLMOnlineEmbedModuleBase):
 
 
 class SiliconFlowRerank(LazyLLMOnlineRerankModuleBase):
+    """SiliconFlow 重排序模块，继承自 OnlineEmbeddingModuleBase。
+
+提供基于 SiliconFlow 平台的文本重排序（Reranking）功能，用于对文档列表根据查询相关性进行重新排序。
+
+Args:
+    embed_url (str, optional): 重排序 API 的 URL，默认为 "https://api.siliconflow.cn/v1/rerank"
+    embed_model_name (str, optional): 使用的重排序模型名称，默认为 "BAAI/bge-reranker-v2-m3"
+    api_key (str, optional): API 密钥，默认从配置项 lazyllm.config['siliconflow_api_key'] 中读取
+    **kw: 其他重排序模块参数
+
+Returns:
+    List[Tuple]: 包含排序结果的列表，每个元素为包含 'index'、'relevance_score' 的元组。
+"""
     def __init__(self, embed_url: str = 'https://api.siliconflow.cn/v1/rerank',
                  embed_model_name: str = 'BAAI/bge-reranker-v2-m3', api_key: str = None, **kw):
         super().__init__(embed_url, api_key or lazyllm.config['siliconflow_api_key'], embed_model_name, **kw)
@@ -69,6 +104,17 @@ class SiliconFlowRerank(LazyLLMOnlineRerankModuleBase):
 
 
 class SiliconFlowText2Image(LazyLLMOnlineText2ImageModuleBase):
+    """SiliconFlow文生图模块，继承自OnlineMultiModalBase。
+
+提供基于SiliconFlow的文本生成图像功能，支持根据文本描述生成图像，支持纯文本生成图像和图像编辑。
+
+Args:
+    api_key (str, optional): API密钥，默认为配置中的siliconflow_api_key
+    model_name (str, optional): 模型名称，默认为"Qwen/Qwen-Image"
+    base_url (str, optional): API基础URL，默认为"https://api.siliconflow.cn/v1/"
+    return_trace (bool, optional): 是否返回追踪信息，默认为False
+    **kwargs: 其他模型参数
+"""
     MODEL_NAME = 'Qwen/Qwen-Image'
     IMAGE_EDITING_MODEL_NAME = 'Qwen/Qwen-Image-Edit-2509'
 
@@ -130,6 +176,17 @@ class SiliconFlowText2Image(LazyLLMOnlineText2ImageModuleBase):
 
 
 class SiliconFlowTTS(LazyLLMOnlineTTSModuleBase):
+    """SiliconFlow文本转语音模块，继承自OnlineMultiModalBase。
+
+提供基于SiliconFlow的文本转语音(TTS)功能，支持将文本转换为音频文件。
+
+Args:
+    api_key (str, optional): API密钥，默认为配置中的siliconflow_api_key
+    model_name (str, optional): 模型名称，默认为"fnlp/MOSS-TTSD-v0.5"
+    base_url (str, optional): API基础URL，默认为"https://api.siliconflow.cn/v1/"
+    return_trace (bool, optional): 是否返回追踪信息，默认为False
+    **kwargs: 其他模型参数
+"""
     MODEL_NAME = 'fnlp/MOSS-TTSD-v0.5'
 
     def __init__(self, api_key: str = None, model_name: str = None,

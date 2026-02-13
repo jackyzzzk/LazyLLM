@@ -465,7 +465,6 @@ _SUFFIX_RE = re.compile(
 )
 
 def _normalize_key(name: str) -> str:
-    '''Normalize model name for consistent comparison.'''
     if not name:
         return ''
     s = name.strip().lower()
@@ -475,7 +474,6 @@ def _normalize_key(name: str) -> str:
     return s
 
 def _contains_token(name: str, token: str) -> bool:
-    '''Check if token exists as a separate unit in the model name.'''
     if not token:
         return False
     patterns = [
@@ -490,7 +488,6 @@ NORMALIZED_MODEL_MAPPING: Dict[str, str] = {
 }
 
 def feature_keyword_rule(model_name: str) -> Optional[str]:
-    '''Identify the model type by normalized name or keyword match.'''
     stripped_input = _normalize_key(model_name)
     if stripped_input in NORMALIZED_MODEL_MAPPING:
         return NORMALIZED_MODEL_MAPPING[stripped_input]
@@ -501,7 +498,6 @@ def feature_keyword_rule(model_name: str) -> Optional[str]:
                 return model_type
     return None
 def special_model_rule(model_name: str) -> Optional[str]:
-    '''Determine the model category'''
     return MODEL_MAPPING.get(model_name)
 
 @functools.lru_cache

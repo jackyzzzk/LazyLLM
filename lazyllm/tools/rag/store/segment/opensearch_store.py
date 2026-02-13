@@ -71,6 +71,22 @@ DEFAULT_MAPPING_BODY = {
 
 
 class OpenSearchStore(LazyLLMStoreBase):
+    """OpenSearch存储类，继承自LazyLLMStoreBase。
+
+提供基于OpenSearch的文档存储和检索功能，支持大规模文档管理和高效查询。
+
+Args:
+    uris (List[str]): OpenSearch服务URI列表
+    client_kwargs (Optional[Dict]): OpenSearch客户端配置参数
+    index_kwargs (Optional[Union[Dict, List]]): 索引配置参数
+    **kwargs: 其他关键字参数
+
+Attributes:
+    capability: 存储能力标志，支持分段操作
+    need_embedding: 是否需要嵌入向量
+    supports_index_registration: 是否支持索引注册
+
+"""
     capability = StoreCapability.SEGMENT
     need_embedding = False
     supports_index_registration = False
@@ -90,6 +106,17 @@ class OpenSearchStore(LazyLLMStoreBase):
 
     @override
     def connect(self, global_metadata_desc: Optional[Dict[str, GlobalMetadataDesc]] = None, **kwargs) -> None:
+        """连接OpenSearch服务。
+
+初始化OpenSearch客户端连接，配置认证信息。
+
+Args:
+    *args: 位置参数
+    **kwargs: 关键字参数
+
+Returns:
+    None
+"""
         if self._client_kwargs.get('user') and self._client_kwargs.get('password'):
             self._client_kwargs['http_auth'] = (self._client_kwargs.pop('user'), self._client_kwargs.pop('password'))
         self._ddl_lock = threading.Lock()
@@ -114,6 +141,17 @@ class OpenSearchStore(LazyLLMStoreBase):
 
     @override
     def upsert(self, collection_name: str, data: List[dict]) -> bool:
+        """插入或更新数据到OpenSearch。
+
+批量插入或更新文档数据到指定集合（索引），支持自动创建索引。
+
+Args:
+    collection_name (str): 集合名称（索引名）
+    data (List[dict]): 要插入的数据列表
+
+Returns:
+    bool: 操作是否成功
+"""
         if not data: return
         try:
             self._ensure_index(collection_name)
@@ -134,6 +172,18 @@ class OpenSearchStore(LazyLLMStoreBase):
 
     @override
     def delete(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> bool:
+        """从OpenSearch删除数据。
+
+根据条件删除指定集合中的数据，支持批量删除和索引删除。
+
+Args:
+    collection_name (str): 集合名称（索引名）
+    criteria (Optional[dict]): 删除条件
+    **kwargs: 其他删除参数
+
+Returns:
+    bool: 操作是否成功
+"""
         try:
             if not self._client.indices.exists(index=collection_name):
                 LOG.warning(f'[OpenSearchStore - delete] Index {collection_name} does not exist')
@@ -157,6 +207,18 @@ class OpenSearchStore(LazyLLMStoreBase):
 
     @override
     def get(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> List[dict]:
+        """从OpenSearch查询数据。
+
+根据条件查询指定集合中的数据，支持主键查询和复杂条件查询。
+
+Args:
+    collection_name (str): 集合名称（索引名）
+    criteria (Optional[dict]): 查询条件
+    **kwargs: 其他查询参数
+
+Returns:
+    List[dict]: 查询结果数据列表
+"""
         try:
             if not self._client.indices.exists(index=collection_name):
                 LOG.warning(f'[OpenSearchStore - get] Index {collection_name} does not exist')
@@ -196,6 +258,18 @@ class OpenSearchStore(LazyLLMStoreBase):
     @override
     def search(self, collection_name: str, query: Optional[str] = None,
                topk: Optional[int] = 10, filters: Optional[dict] = None, **kwargs) -> List[dict]:  # noqa: C901
+        """执行向量相似度检索，并可按元数据过滤。
+Args:
+    collection_name (str): 待搜索集合。
+    query (Optional[str]): 查询字符串。
+    topk (Optional[int]): 返回邻近数量。
+    filters (Optional[dict]): 元数据过滤映射。
+    kwargs: 其他搜索参数
+
+**Returns:**
+
+- List[dict]: 返回匹配结果列表及相似度 'score'。
+"""
         query_fields = ['*']
         try:
             self._ensure_index(collection_name)

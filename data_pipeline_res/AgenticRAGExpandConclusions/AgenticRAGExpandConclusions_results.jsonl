@@ -1,0 +1,2 @@
+{"raw_conclusion": "[{\"conclusion\": \"C1\", \"R\": \"R1\"}, {\"conclusion\": \"C2\", \"R\": \"R2\"}]", "identifier": "test_id", "candidate_tasks_str": "{\"conclusion\": \"C1\", \"R\": \"R1\"}"}
+{"raw_conclusion": "[{\"conclusion\": \"C1\", \"R\": \"R1\"}, {\"conclusion\": \"C2\", \"R\": \"R2\"}]", "identifier": "test_id", "candidate_tasks_str": "{\"conclusion\": \"C2\", \"R\": \"R2\"}"}

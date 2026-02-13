@@ -23,10 +23,33 @@ lazyllm.config.add('k8s_device_type', str, 'nvidia.com/gpu', 'K8S_DEVICE_TYPE',
 
 @final
 class K8sLauncher(LazyLLMLaunchersBase):
+    """K8sLauncher是一个基于Kubernetes的部署启动器，用于在Kubernetes集群中部署和管理服务。
+
+Args:
+    kube_config_path (str): Kubernetes配置文件路径。
+    resource_config_path (str): 资源配置文件路径。
+    image (str): 容器镜像。
+    volume_configs (list): 卷配置列表。
+    svc_type (str): 服务类型，默认为"LoadBalancer"。
+    namespace (str): Kubernetes命名空间，默认为"default"。
+    gateway_name (str): 网关名称，默认为"lazyllm-gateway"。
+    gateway_class_name (str): 网关类名称，默认为"istio"。
+    host (str): HTTP主机名，默认为None。
+    path (str): HTTP路径，默认为'/generate'。
+    gateway_retry (int): 网关重试次数。
+"""
     all_processes = defaultdict(list)
     namespace = 'default'
 
     class Job(Job):
+        """通用任务调度执行类。
+该类用于封装一个通过启动器（launcher）调度执行的任务，支持命令包装、同步控制、返回值提取、命令固定等功能。
+
+Args:
+    cmd (LazyLLMCMD): 要执行的命令对象。
+    launcher (Any): 启动器实例，用于实际任务调度执行。
+    sync (bool): 是否为同步执行，默认为 True。
+"""
         def __init__(self, cmd, launcher, *, sync=True):
             super().__init__(cmd, launcher, sync=sync)
             self.launch_type = launcher.launch_type
@@ -1007,11 +1030,34 @@ class K8sLauncher(LazyLLMLaunchersBase):
                 raise ValueError('Kubernetes resource configuration file format error.')
 
     def makejob(self, cmd):
+        """创建一个Kubernetes作业实例。
+
+Args:
+    cmd (str): 要执行的命令。
+
+**Returns:**
+
+- K8sLauncher.Job: 一个新的Kubernetes作业实例。
+"""
         # TODO(wangzhihong): support thread-local kube config by `client = config.new_client_from_config`
         k8s.config.load_kube_config(self.kube_config_path)
         return K8sLauncher.Job(cmd, launcher=self, sync=self.sync)
 
     def launch(self, f, *args, **kw):
+        """启动一个Kubernetes作业或可调用对象。
+
+Args:
+    f (K8sLauncher.Job): 要启动的Kubernetes作业实例。
+    *args: 位置参数。
+    **kw: 关键字参数。
+
+**Returns:**
+
+- Any: 作业的返回值。
+
+Raises:
+    RuntimeError: 当提供的不是Deployment对象时抛出。
+"""
         if isinstance(f, K8sLauncher.Job):
             f.start()
             LOG.info('Launcher started successfully.')

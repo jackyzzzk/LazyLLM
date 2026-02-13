@@ -17,6 +17,20 @@ from ...similarity import bm25, bm25_chinese
 
 
 class MapStore(LazyLLMStoreBase):
+    """基于SQLite的Map存储类，继承自LazyLLMStoreBase。
+
+提供基于SQLite的数据持久化与BM25全文检索，支持多集合管理和简单查询。
+
+Args:
+    uri (Optional[str]): SQLite数据库文件路径，默认为None（内存模式）
+    **kwargs: 其他关键字参数
+
+Attributes:
+    capability: 存储能力标志，支持所有操作
+    need_embedding: 是否需要嵌入向量
+    supports_index_registration: 是否支持索引注册
+
+"""
     capability = StoreCapability.ALL
     need_embedding = True
     supports_index_registration = True
@@ -99,6 +113,17 @@ class MapStore(LazyLLMStoreBase):
 
     @override
     def connect(self, collections: Optional[List[str]] = None, **kwargs):
+        """连接SQLite数据库并加载数据。
+
+初始化存储连接，创建必要的数据库表和索引，加载现有数据到内存。
+
+Args:
+    collections (Optional[List[str]]): 要连接的集合名称列表
+    **kwargs: 其他连接参数
+
+Returns:
+    None
+"""
         self._uid2data: Dict[str, dict] = {}
         self._collection2uids: Dict[str, Set[str]] = defaultdict(set)
         self._col_doc_uids: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
@@ -123,6 +148,17 @@ class MapStore(LazyLLMStoreBase):
 
     @override
     def upsert(self, collection_name: str, data: List[dict]) -> bool:
+        """插入或更新数据。
+
+将数据插入到指定集合中，如果已存在则更新，支持批量操作。
+
+Args:
+    collection_name (str): 集合名称
+    data (List[dict]): 要插入的数据列表
+
+Returns:
+    bool: 操作是否成功
+"""
         try:
             if self._sqlite_first:
                 with self._lock:
@@ -141,6 +177,18 @@ class MapStore(LazyLLMStoreBase):
 
     @override
     def delete(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> bool:
+        """删除数据。
+
+根据条件删除指定集合中的数据，支持批量删除。
+
+Args:
+    collection_name (str): 集合名称
+    criteria (Optional[dict]): 删除条件
+    **kwargs: 其他删除参数
+
+Returns:
+    bool: 操作是否成功
+"""
         try:
             def _remove_uid(uid: str, use_discard: bool) -> None:
                 data = self._uid2data.pop(uid, None)
@@ -179,6 +227,18 @@ class MapStore(LazyLLMStoreBase):
 
     @override
     def get(self, collection_name: str, criteria: Optional[dict] = None, **kwargs) -> List[dict]:
+        """查询数据。
+
+根据条件查询指定集合中的数据，支持多种查询条件。
+
+Args:
+    collection_name (str): 集合名称
+    criteria (Optional[dict]): 查询条件
+    **kwargs: 其他查询参数
+
+Returns:
+    List[dict]: 查询结果数据列表
+"""
         if self._sqlite_first:
             with self._lock:
                 conn = self._open_conn()

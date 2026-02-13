@@ -2,16 +2,16 @@ from .base_prompt import PromptABC
 
 
 class Text2MultiHopQAGeneratorPrompt(PromptABC):
-    '''
+    """
     多跳问答生成器（严格JSON格式输出）
     根据语言参数提供完全独立的专业提示模板
-    '''
+    """
     def __init__(self, lang: str = 'en'):
         self.lang = lang
         self.system_text = self.build_system_prompt()
 
     def build_system_prompt(self) -> str:
-        '''构建专业级多跳问答提示'''
+        """构建专业级多跳问答提示"""
         if self.lang == 'en':
             return '''\
                 You are a professional multi-hop QA specialist with strict protocols:
@@ -82,7 +82,7 @@ class Text2MultiHopQAGeneratorPrompt(PromptABC):
                 '''
 
     def build_prompt(self, text: str) -> str:
-        '''生成完全专业化的用户提示'''
+        """生成完全专业化的用户提示"""
         if self.lang == 'en':
             return f'''\
             Generate professional multi-hop QA from:

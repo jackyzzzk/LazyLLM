@@ -1,10 +1,8 @@
-'''Prompts for AgenticRAG pipeline operators'''
 import json
 from .base_prompt import PromptABC
 
 
 class AtomicTaskGeneratorGetIdentifierPrompt(PromptABC):
-    '''Prompt for the AtomicTaskGenerator to get identifier.'''
     def __init__(self):
         pass
 
@@ -37,7 +35,6 @@ class AtomicTaskGeneratorGetIdentifierPrompt(PromptABC):
 
 
 class AtomicTaskGeneratorGetConclusionPrompt(PromptABC):
-    '''Prompt for the AtomicTaskGenerator to get initial conclusion.'''
     def __init__(self):
         pass
 
@@ -81,7 +78,6 @@ class AtomicTaskGeneratorGetConclusionPrompt(PromptABC):
 
 
 class AtomicTaskGeneratorQuestionPrompt(PromptABC):
-    '''Prompt for the AtomicTaskGenerator to get initial question.'''
     def __init__(self):
         pass
 
@@ -112,7 +108,6 @@ relationship (R), and answer (A).
 
 
 class AtomicTaskGeneratorCleanQAPrompt(PromptABC):
-    '''Prompt for the AtomicTaskGenerator to clean QA.'''
     def __init__(self):
         pass
 
@@ -138,7 +133,6 @@ class AtomicTaskGeneratorCleanQAPrompt(PromptABC):
 
 
 class AtomicTaskGeneratorAnswerPrompt(PromptABC):
-    '''Prompt for the AtomicTaskGenerator to get LLM's answer.'''
     def __init__(self):
         pass
 
@@ -152,7 +146,6 @@ that meet the query requirements.
 
 
 class AtomicTaskGeneratorRecallScorePrompt(PromptABC):
-    '''Prompt for the AtomicTaskGenerator to get recall score.'''
     def __init__(self):
         pass
 
@@ -180,7 +173,6 @@ Evaluate the consistency of the core content of the golden answer and the other 
 
 
 class AtomicTaskGeneratorOptionalAnswerPrompt(PromptABC):
-    '''Prompt for the AtomicTaskGenerator to get optional answer.'''
     def __init__(self):
         pass
 
@@ -206,7 +198,6 @@ for a given input entity.
 
 
 class AtomicTaskGeneratorGoldenDocAnswerPrompt(PromptABC):
-    '''Prompt for the AtomicTaskGenerator to get LLM's answer with golden doc.'''
     def __init__(self):
         pass
 
@@ -224,7 +215,6 @@ Return the final answer directly, with no explanation.
 
 
 class DepthQAGeneratorGetIdentifierPrompt(PromptABC):
-    '''Prompt for the DepthQAGenerator to get identifier.'''
     def __init__(self):
         pass
 
@@ -247,7 +237,6 @@ class DepthQAGeneratorGetIdentifierPrompt(PromptABC):
 
 
 class DepthQAGeneratorBackwardTaskPrompt(PromptABC):
-    '''Prompt for the DepthQAGenerator to get backward task.'''
     def __init__(self):
         pass
 
@@ -265,7 +254,6 @@ its attributes.
 
 
 class DepthQAGeneratorSupersetCheckPrompt(PromptABC):
-    '''Prompt for the DepthQAGenerator to check superset.'''
     def __init__(self):
         pass
 
@@ -288,7 +276,6 @@ Given subset: {identifier}
 
 
 class DepthQAGeneratorQuestionPrompt(PromptABC):
-    '''Prompt for the DepthQAGenerator to get question.'''
     def __init__(self):
         pass
 
@@ -307,7 +294,6 @@ class DepthQAGeneratorQuestionPrompt(PromptABC):
 
 
 class DepthQAGeneratorAnswerPrompt(PromptABC):
-    '''Prompt for the DepthQAGenerator to get LLM's answer.'''
     def __init__(self):
         pass
 
@@ -321,7 +307,6 @@ The task is:
 
 
 class DepthQAGeneratorRecallScorePrompt(PromptABC):
-    '''Prompt for the DepthQAGenerator to get recall score.'''
     def __init__(self):
         pass
 
@@ -349,7 +334,6 @@ Evaluate the consistency of the core content of the golden answer and the other 
 
 
 class WidthQAGeneratorMergePrompt(PromptABC):
-    '''Prompt for the WidthQAGenerator to merge prompt.'''
     def __init__(self):
         pass
 
@@ -378,7 +362,6 @@ class WidthQAGeneratorMergePrompt(PromptABC):
 
 
 class WidthQAGeneratorOriginCheckPrompt(PromptABC):
-    '''Prompt for the WidthQAGenerator to check origin.'''
     def __init__(self):
         pass
 
@@ -404,7 +387,6 @@ class WidthQAGeneratorOriginCheckPrompt(PromptABC):
 
 
 class WidthQAGeneratorQuestionVerifyPrompt(PromptABC):
-    '''Prompt for the WidthQAGenerator to verify question.'''
     def __init__(self):
         pass
 
@@ -428,7 +410,6 @@ class WidthQAGeneratorQuestionVerifyPrompt(PromptABC):
 
 
 class WidthQAGeneratorAnswerPrompt(PromptABC):
-    '''Prompt for the WidthQAGenerator to get LLM's answer.'''
     def __init__(self):
         pass
 
@@ -442,7 +423,6 @@ The task is:
 
 
 class WidthQAGeneratorRecallScorePrompt(PromptABC):
-    '''Prompt for the WidthQAGenerator to get recall score.'''
     def __init__(self):
         pass
 

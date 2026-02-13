@@ -33,6 +33,7 @@ class EmbedPlaceholder:
 
 
 class NodeGroupType(str, Enum):
+    """An enumeration."""
     ORIGINAL = 'Original Source'
     CHUNK = 'Chunk'
     SUMMARY = 'Summary'
@@ -65,6 +66,20 @@ class BuiltinGroups(object):
 
 
 class DocImpl:
+    """文档实现类，用于管理文档处理、存储和检索的核心功能。
+
+Args:
+    embed (Dict[str, Callable]): 嵌入函数字典。
+    dlm (Optional[DocListManager]): 文档列表管理器，默认为None。
+    doc_files (Optional[str]): 文档文件路径，默认为None。
+    kb_group_name (Optional[str]): 知识库组名称，默认为默认组名。
+    global_metadata_desc (Dict[str, GlobalMetadataDesc]): 全局元数据描述。
+    store (Optional[Union[Dict, LazyLLMStoreBase]]): 存储实例或配置。
+    processor (Optional[DocumentProcessor]): 文档处理服务。
+    algo_name (Optional[str]): 算法名称。
+    display_name (Optional[str]): 显示名称。
+    description (Optional[str]): 描述信息。
+"""
     _builtin_node_groups: Dict[str, Dict] = {}
     _global_node_groups: Dict[str, Dict] = {}
     _registered_file_reader: Dict[str, Callable] = {}
@@ -256,6 +271,18 @@ class DocImpl:
                                  trans_node: Optional[bool] = None, num_workers: int = 0,
                                  display_name: Optional[str] = None,
                                  group_type: NodeGroupType = NodeGroupType.CHUNK, ref: str = None, **kwargs) -> None:
+        """创建全局节点组。
+
+Args:
+    name (str): 节点组名称。
+    transform (Union[str, Callable]): 转换函数或名称。
+    parent (str): 父节点组名称，默认为LAZY_ROOT_NAME。
+    trans_node (Optional[bool]): 是否转换节点，默认为None。
+    num_workers (int): 工作线程数，默认为0。
+    display_name (Optional[str]): 显示名称。
+    group_type (NodeGroupType): 节点组类型。
+    **kwargs: 其他参数。
+"""
         DocImpl._create_node_group_impl(cls, '_global_node_groups', name=name, transform=transform, parent=parent,
                                         trans_node=trans_node, num_workers=num_workers, display_name=display_name,
                                         group_type=group_type, ref=ref, **kwargs)
@@ -263,6 +290,18 @@ class DocImpl:
     def create_node_group(self, name, transform: Union[str, Callable], parent: str = LAZY_ROOT_NAME, *,
                           trans_node: Optional[bool] = None, num_workers: int = 0, display_name: Optional[str] = None,
                           group_type: NodeGroupType = NodeGroupType.CHUNK, ref: str = None, **kwargs) -> None:
+        """创建局部节点组。
+
+Args:
+    name (str): 节点组名称。
+    transform (Union[str, Callable]): 转换函数或名称。
+    parent (str): 父节点组名称，默认为LAZY_ROOT_NAME。
+    trans_node (Optional[bool]): 是否转换节点，默认为None。
+    num_workers (int): 工作线程数，默认为0。
+    display_name (Optional[str]): 显示名称。
+    group_type (NodeGroupType): 节点组类型。
+    **kwargs: 其他参数。
+"""
         assert not self._lazy_init.flag, 'Cannot add node group after document started'
         DocImpl._create_node_group_impl(self, 'node_groups', name=name, transform=transform, parent=parent,
                                         trans_node=trans_node, num_workers=num_workers, display_name=display_name,
@@ -270,6 +309,16 @@ class DocImpl:
 
     @classmethod
     def register_global_reader(cls, pattern: str, func: Optional[Callable] = None):
+        """注册全局文件读取器。
+
+Args:
+    pattern (str): 文件模式。
+    func (Optional[Callable]): 读取函数，默认为None。
+
+**Returns:**
+
+- Optional[Callable]: 装饰器函数或None。
+"""
         if func is not None:
             cls._registered_file_reader[pattern] = func
             return None
@@ -286,6 +335,14 @@ class DocImpl:
         return value
 
     def register_index(self, index_type: str, index_cls: IndexBase, *args, **kwargs) -> None:
+        """注册索引。
+
+Args:
+    index_type (str): 索引类型。
+    index_cls (IndexBase): 索引类。
+    *args: 位置参数。
+    **kwargs: 关键字参数。
+"""
         if bool(self._lazy_init.flag):
             args = [self._resolve_index_placeholder(arg) for arg in args]
             kwargs = {k: self._resolve_index_placeholder(v) for k, v in kwargs.items()}
@@ -294,6 +351,12 @@ class DocImpl:
             self._index_pending_registrations.append((index_type, index_cls, args, kwargs))
 
     def add_reader(self, pattern: str, func: Optional[Callable] = None):
+        """添加局部文件读取器。
+
+Args:
+    pattern (str): 文件模式。
+    func (Optional[Callable]): 读取函数。
+"""
         assert callable(func), 'func for reader should be callable'
         self._local_file_reader[pattern] = func
         self._reader._lazy_init.flag.reset()
@@ -323,6 +386,8 @@ class DocImpl:
             func(*[arg[i:i + batch_size] if isinstance(arg, (list, tuple)) else arg for arg in args], **kwargs)
 
     def worker(self):
+        """后台工作线程，处理文档的解析、删除、添加等操作。
+"""
         is_first_run = True
         while True:
             # Apply meta changes
@@ -390,6 +455,12 @@ class DocImpl:
         self._processor.delete_doc(doc_ids=doc_ids)
 
     def activate_group(self, group_name: str, embed_keys: Optional[List[str]] = None, enable_embed: bool = True):
+        """激活节点组。
+
+Args:
+    group_name (str): 节点组名称。
+    embed_keys (List[str]): 嵌入键列表。
+"""
         group_name = str(group_name)
         self._activated_groups.add(group_name)
         if embed_keys is None and enable_embed:
@@ -411,11 +482,35 @@ class DocImpl:
             if self._store.is_group_empty(group_name): self._processor.reparse(group_name)
 
     def active_node_groups(self):
+        """获取当前激活的节点组。
+
+**Returns:**
+
+- Dict: 激活的节点组及其嵌入键。
+"""
         return {k: v for k, v in self._activated_embeddings.items() if k in self._activated_groups}
 
     def retrieve(self, query: str, group_name: str, similarity: str, similarity_cut_off: Union[float, Dict[str, float]],
                  index: str, topk: int, similarity_kws: dict, embed_keys: Optional[List[str]] = None,
                  filters: Optional[Dict[str, Union[str, int, List, Set]]] = None, **kwargs) -> List[DocNode]:
+        """检索文档节点。
+
+Args:
+    query (str): 查询字符串。
+    group_name (str): 节点组名称。
+    similarity (str): 相似度计算方法。
+    similarity_cut_off (Union[float, Dict[str, float]]): 相似度阈值。
+    index (str): 索引类型。
+    topk (int): 返回结果数量。
+    similarity_kws (dict): 相似度计算参数。
+    embed_keys (Optional[List[str]]): 嵌入键列表。
+    filters (Optional[Dict]): 过滤条件。
+    **kwargs: 其他参数。
+
+**Returns:**
+
+- List[DocNode]: 检索到的文档节点列表。
+"""
         self._lazy_init()
 
         if index and index != 'default':
@@ -438,6 +533,16 @@ class DocImpl:
         return nodes
 
     def find(self, nodes: List[DocNode], group: str) -> List[DocNode]:
+        """在指定组中查找节点。
+
+Args:
+    nodes (List[DocNode]): 节点列表。
+    group (str): 目标组名称。
+
+**Returns:**
+
+- List[DocNode]: 找到的节点列表。
+"""
         if len(nodes) == 0: return nodes
         self._lazy_init()
 
@@ -475,6 +580,16 @@ class DocImpl:
         return nodes
 
     def find_parent(self, nodes: List[DocNode], group: str) -> List[DocNode]:
+        """查找父节点。
+
+Args:
+    nodes (List[DocNode]): 节点列表。
+    group (str): 目标组名称。
+
+**Returns:**
+
+- List[DocNode]: 找到的父节点列表。
+"""
         if isinstance(nodes[0].parent, DocNode):
             result = self._find_parent_with_node(nodes, group)
         else:
@@ -514,6 +629,16 @@ class DocImpl:
         return cur_nodes if cur_group == group else []
 
     def find_children(self, nodes: List[DocNode], group: str) -> List[DocNode]:
+        """查找子节点。
+
+Args:
+    nodes (List[DocNode]): 节点列表。
+    group (str): 目标组名称。
+
+**Returns:**
+
+- List[DocNode]: 找到的子节点列表。
+"""
         if not nodes: return []
         kb_id = nodes[0].global_metadata.get(RAG_KB_ID, None)
         result = self._store.get_nodes(group=group, kb_id=kb_id, parent=[n._uid for n in nodes], display=True)
@@ -523,9 +648,16 @@ class DocImpl:
         return list(result)
 
     def clear_cache(self, group_names: Optional[List[str]] = None):
+        """清除缓存。
+
+Args:
+    group_names (Optional[List[str]]): 要清除缓存的组名列表，默认为None表示清除所有缓存。
+"""
         self._store.clear_cache(group_names)
 
     def drop_algorithm(self):
+        """删除当前文档集合的在文档解析服务中注册的算法信息。
+"""
         if isinstance(self._processor, DocumentProcessor):
             self._processor.drop_algorithm(self._algo_name)
         else:

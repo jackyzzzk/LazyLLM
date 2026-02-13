@@ -8,6 +8,34 @@ from .eval_base import BaseEvaluator
 
 
 class ResponseRelevancy(BaseEvaluator):
+    """用于评估用户问题与模型生成问题之间语义相关性的指标类。
+
+该评估器使用语言模型根据回答生成问题，并通过 Embedding 与余弦相似度度量其与原始问题之间的相关性。
+
+Args:
+    llm (ModuleBase): 用于根据回答生成问题的语言模型模块。
+    embedding (ModuleBase): 用于编码问题向量的嵌入模块。
+    prompt (str, 可选): 自定义的生成提示词，若不提供将使用默认提示。
+    prompt_lang (str): 默认提示词的语言，可选 `'en'`（默认）或 `'zh'`。
+    num_infer_questions (int): 每条数据生成和评估的问题数量。
+    retry (int): 失败时的重试次数。
+    concurrency (int): 并发评估的数量。
+
+
+Examples:
+    >>> from lazyllm.components import ResponseRelevancy
+    >>> relevancy = ResponseRelevancy(
+    ...     llm=YourLLM(),
+    ...     embedding=YourEmbedding(),
+    ...     prompt_lang="en",
+    ...     num_infer_questions=3
+    ... )
+    >>> result = relevancy([
+    ...     {"question": "What is the capital of France?", "answer": "Paris is the capital city of France."}
+    ... ])
+    >>> print(result)
+    ... 0.95  # (a float score between 0 and 1)
+    """
     _default_generate_prompt_en = (
         'Please generate the most likely question based on '
         'the input, keeping it concise and to the point.')
@@ -60,6 +88,31 @@ class ResponseRelevancy(BaseEvaluator):
 
 
 class Faithfulness(BaseEvaluator):
+    """评估回答与上下文之间事实一致性的指标类。
+
+该评估器首先使用语言模型将答案拆分为独立事实句，然后基于上下文对每条句子进行支持性判断（0或1分），最终取平均值作为总体一致性分数。
+
+Args:
+    llm (ModuleBase): 同时用于生成句子与进行评估的语言模型模块。
+    generate_prompt (str, 可选): 用于将答案转换为事实句的自定义提示词。
+    eval_prompt (str, 可选): 用于评估句子与上下文匹配度的提示词。
+    prompt_lang (str): 默认提示词的语言，可选 'en' 或 'zh'。
+    retry (int): 生成或评估失败时的最大重试次数。
+    concurrency (int): 并发评估的数据条数。
+
+
+Examples:
+    >>> from lazyllm.components import Faithfulness
+    >>> evaluator = Faithfulness(llm=YourLLM(), prompt_lang="en")
+    >>> data = {
+    ...     "question": "What is the role of ATP in cells?",
+    ...     "answer": "ATP stores energy and transfers it within cells.",
+    ...     "context": "ATP is the energy currency of the cell. It provides energy for many biochemical reactions."
+    ... }
+    >>> result = evaluator([data])
+    >>> print(result)
+    ... 1.0  # Average binary score of all factual statements
+    """
     _default_generate_prompt_en = (
         '[Task Description]\n'
         'Split the answer into independent factual statements using "|||" as '

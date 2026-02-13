@@ -1,18 +1,8 @@
-'''
-Prompts for Embedding Synthesis Operators
-
-This module contains prompt templates for generating embedding training data.
-该模块包含用于生成 Embedding 训练数据的提示词模板。
-'''
 from typing import List, Optional
 from .base_prompt import PromptABC
 
 
 class EmbeddingQueryGeneratorPrompt(PromptABC):
-    '''
-    Prompt template for generating queries from passages.
-    用于从段落生成查询的提示词模板。
-    '''
 
     def __init__(self, lang: str = 'zh'):
         self.lang = lang
@@ -90,10 +80,6 @@ Return in the following JSON format:
 
 
 class EmbeddingQueryAugmentPrompt(PromptABC):
-    '''
-    Prompt template for augmenting/rewriting queries.
-    用于增强/改写查询的提示词模板。
-    '''
 
     def __init__(self, lang: str = 'zh'):
         self.lang = lang
@@ -152,10 +138,6 @@ Return in the following JSON format:
 
 
 class EmbeddingPassageEnhancePrompt(PromptABC):
-    '''
-    Prompt template for enhancing passages for better retrieval.
-    用于增强段落以提升检索效果的提示词模板。
-    '''
 
     def __init__(self, lang: str = 'zh'):
         self.lang = lang

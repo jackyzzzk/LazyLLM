@@ -65,6 +65,24 @@ class _LanguageSplitterBase(_TextSplitterBase):
 
 # ========== XMLSplitter ==========
 class XMLSplitter(_LanguageSplitterBase):
+    """
+一个XML拆分器，负责拆分XML文本的语义。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int):控制并行处理的线程/进程数量。
+    keep_trace (bool): 是否保留拆分文本中的trace。
+    keep_tags (bool): 是否保留拆分文本中的tags。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import XMLSplitter
+    >>> splitter = XMLSplitter(chunk_size=1024, overlap=100, num_workers=10, keep_trace=True, keep_tags=True)
+    >>> print(splitter)
+    """
     def __init__(self, chunk_size: int = _UNSET, overlap: int = _UNSET, num_workers: int = _UNSET,
                  filetype: Optional[str] = 'xml', keep_trace: bool = _UNSET, keep_tags: bool = _UNSET, **kwargs):
         super().__init__(chunk_size=chunk_size, overlap=overlap, num_workers=num_workers,
@@ -169,6 +187,23 @@ class XMLSplitter(_LanguageSplitterBase):
 
 # ========== GeneralCodeSplitter ==========
 class GeneralCodeSplitter(_LanguageSplitterBase):
+    """
+一个通用代码拆分器，负责拆分代码文本的语义。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int):控制并行处理的线程/进程数量。
+    filetype (str): 要拆分的文件类型。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import GeneralCodeSplitter
+    >>> splitter = GeneralCodeSplitter(chunk_size=1024, chunk_overlap=100, num_workers=10, filetype='code')
+    >>> print(splitter)
+    """
     def __init__(self, chunk_size: int = _UNSET, overlap: int = _UNSET, num_workers: int = _UNSET,
                  filetype: str = 'code', **kwargs):
         super().__init__(chunk_size=chunk_size, overlap=overlap, num_workers=num_workers,
@@ -286,6 +321,24 @@ class GeneralCodeSplitter(_LanguageSplitterBase):
 
 # ========== JSONSplitter ==========
 class JSONSplitter(_LanguageSplitterBase):
+    """
+一个JSON拆分器，负责拆分JSON文本的语义。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int): 控制并行处理的线程/进程数量。
+    compact_output (bool): 是否压缩输出。默认为True。
+    **kwargs: 传递给拆分器的额外参数。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import JSONSplitter
+    >>> splitter = JSONSplitter(chunk_size=1024, chunk_overlap=100, num_workers=10, compact_output=True)
+    >>> print(splitter)
+    """
     def __init__(self, chunk_size: int = _UNSET, overlap: int = _UNSET, num_workers: int = _UNSET,
                  filetype: str = 'json', compact_output: bool = _UNSET, **kwargs):
         super().__init__(chunk_size=chunk_size, overlap=overlap, num_workers=num_workers,
@@ -517,6 +570,23 @@ class JSONSplitter(_LanguageSplitterBase):
 
 # ========== JSONLSplitter ==========
 class JSONLSplitter(JSONSplitter):
+    """
+一个JSONL拆分器，负责拆分JSONL文本的语义。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int):控制并行处理的线程/进程数量。
+    compact_output (bool): 是否压缩输出。默认为True。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import JSONLSplitter
+    >>> splitter = JSONLSplitter(chunk_size=1024, chunk_overlap=100, num_workers=10, compact_output=True)
+    >>> print(splitter)
+    """
     def __init__(self, chunk_size: int = _UNSET, overlap: int = _UNSET, num_workers: int = _UNSET,
                  filetype: str = 'jsonl', compact_output: bool = _UNSET, **kwargs):
         super().__init__(chunk_size=chunk_size, overlap=overlap, num_workers=num_workers,
@@ -568,6 +638,24 @@ class JSONLSplitter(JSONSplitter):
         return result
 
     def split_text(self, text: str, metadata_size: int) -> List[DocNode]:
+        """
+拆分JSONL文本为块。
+
+Args:
+    text (str): 要拆分的文本。
+    metadata_size (int): 元数据的尺寸。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import JSONLSplitter
+    >>> splitter = JSONLSplitter(chunk_size=1024, chunk_overlap=100, num_workers=10, compact_output=True)
+    >>> text = '{"name": "John", "age": 30}
+    {"name": "Jane", "age": 25}'
+    >>> chunks = splitter.split_text(text)
+    >>> print(chunks)
+    """
         if text == '':
             return [DocNode(text='', metadata={'code_type': 'empty'})]
         effective_chunk_size = self._chunk_size - metadata_size
@@ -598,6 +686,23 @@ class JSONLSplitter(JSONSplitter):
 
 # ========== YAMLSplitter ==========
 class YAMLSplitter(JSONSplitter):
+    """
+一个YAML拆分器，负责拆分YAML文本的语义。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int):控制并行处理的线程/进程数量。
+    compact_output (bool): 是否压缩输出。默认为True。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import YAMLSplitter
+    >>> splitter = YAMLSplitter(chunk_size=1024, chunk_overlap=100, num_workers=10, compact_output=True)
+    >>> print(splitter)
+    """
     def __init__(self, chunk_size: int = _UNSET, overlap: int = _UNSET, num_workers: int = _UNSET,
                  filetype: str = 'yaml', compact_output: bool = _UNSET, **kwargs):
         super().__init__(chunk_size=chunk_size, overlap=overlap, num_workers=num_workers,
@@ -615,6 +720,24 @@ class YAMLSplitter(JSONSplitter):
 
 # ========== HTMLSplitter ==========
 class HTMLSplitter(_LanguageSplitterBase):
+    """
+一个HTML拆分器，负责拆分HTML文本的语义。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int): 控制并行处理的线程/进程数量。
+    keep_sections (bool): 是否保留sections在拆分后的文本中。默认为False。
+    keep_tags (bool): 是否保留tags在拆分后的文本中。默认为False。
+    **kwargs: 传递给拆分器的额外参数。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import HTMLSplitter
+    >>> splitter = HTMLSplitter(chunk_size=1024, chunk_overlap=100, num_workers=10, keep_sections=True, keep_tags=True)
+    """
     def __init__(self, chunk_size: int = _UNSET, overlap: int = _UNSET, num_workers: int = _UNSET,
                  filetype: str = 'html', keep_sections: bool = _UNSET, keep_tags: bool = _UNSET, **kwargs):
         super().__init__(chunk_size=chunk_size, overlap=overlap, num_workers=num_workers,
@@ -902,6 +1025,23 @@ class HTMLSplitter(_LanguageSplitterBase):
 
 
 class CodeSplitter(_TextSplitterBase):
+    """
+一个代码拆分器，负责根据文件类型进行路由选择不同的拆分器。
+
+Args:
+    chunk_size (int): 拆分之后的块大小
+    overlap (int): 相邻两个块之间重合的内容长度
+    num_workers (int): 控制并行处理的线程/进程数量。
+    filetype (Optional[str]): 要拆分的文件类型。
+    **kwargs: 传递给拆分器的额外参数。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import CodeSplitter
+    >>> splitter = CodeSplitter(filetype='python')
+    """
     _SPLITTER_REGISTRY: Dict[str, Type[_LanguageSplitterBase]] = {
         'xml': XMLSplitter,
         'json': JSONSplitter,
@@ -923,6 +1063,25 @@ class CodeSplitter(_TextSplitterBase):
             self._splitter = self.from_language(filetype)
 
     def from_language(self, filetype: str) -> _LanguageSplitterBase:
+        """
+根据文件类型加载语言拆分器，如果未在CodeSplitter初始化中指定。
+
+Args:
+    filetype (str): 要拆分的文件类型。
+
+**Returns:**
+
+    _LanguageSplitterBase: 语言拆分器。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import CodeSplitter
+    >>> splitter = CodeSplitter(chunk_size=1024, chunk_overlap=100, num_workers=10)
+    >>> splitter = splitter.from_language('python')
+    >>> print(splitter)
+    """
         filetype_lower = filetype.lower()
         splitter_class = self._SPLITTER_REGISTRY.get(filetype_lower, GeneralCodeSplitter)
 
@@ -942,6 +1101,23 @@ class CodeSplitter(_TextSplitterBase):
         return self._splitter.transform(node, **kwargs)
 
     def split_text(self, text: str, metadata_size: int = 0) -> List[DocNode]:
+        """
+拆分代码文本为块。
+
+Args:
+    text (str): 要拆分的文本。
+    metadata_size (int): 元数据的尺寸。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import CodeSplitter
+    >>> splitter = CodeSplitter(filetype='python')
+    >>> text = 'print("Hello, World!")'
+    >>> chunks = splitter.split_text(text)
+    >>> print(chunks)
+    """
         if self._splitter is None:
             LOG.warning('Filetype not specified, cannot determine split method')
             return [DocNode(text=text, metadata={'tag': 'unknown_type'})]
@@ -950,6 +1126,20 @@ class CodeSplitter(_TextSplitterBase):
 
     @classmethod
     def register_splitter(cls, filetype: str, splitter_class: Type[_LanguageSplitterBase]):
+        """
+注册一个语言拆分器。
+
+Args:
+    filetype (str): 要拆分的文件类型。
+    splitter_class (Type[_LanguageSplitterBase]): 语言拆分器类。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import CodeSplitter
+    >>> CodeSplitter.register_splitter('python', PythonSplitter)
+    """
         if not isinstance(splitter_class, type):
             raise TypeError(
                 f'splitter_class must be a class, got {type(splitter_class).__name__}'
@@ -973,4 +1163,18 @@ class CodeSplitter(_TextSplitterBase):
 
     @classmethod
     def get_supported_filetypes(cls) -> List[str]:
+        """
+获取CodeSplitter支持的文件类型。
+
+**Returns:**
+
+    List[str]: 支持的文件类型。
+
+
+Examples:
+
+    >>> import lazyllm
+    >>> from lazyllm.tools import CodeSplitter
+    >>> print(CodeSplitter.get_supported_filetypes())
+    """
         return list(cls._SPLITTER_REGISTRY.keys())

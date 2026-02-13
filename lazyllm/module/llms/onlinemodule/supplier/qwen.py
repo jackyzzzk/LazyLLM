@@ -19,11 +19,18 @@ from lazyllm import LOG
 
 
 class QwenChat(OnlineChatModuleBase, FileHandlerBase):
-    '''
-    #TODO: The Qianwen model has been finetuned and deployed successfully,
-           but it is not compatible with the OpenAI interface and can only
-           be accessed through the Dashscope SDK.
-    '''
+    """通义千问模型模块，继承自OnlineChatModuleBase和FileHandlerBase。
+
+提供通义千问大语言模型的API调用、微调训练和部署管理功能，支持阿里云DashScope平台。
+
+Args:
+    base_url (str, optional): API基础URL，默认为"https://dashscope.aliyuncs.com/"
+    model (str, optional): 模型名称，默认为配置中的模型名或"qwen-plus"
+    api_key (str, optional): API密钥，默认为配置中的密钥
+    stream (bool, optional): 是否流式输出，默认为True
+    return_trace (bool, optional): 是否返回追踪信息，默认为False
+    **kwargs: 其他模型参数
+"""
     TRAINABLE_MODEL_LIST = ['qwen-turbo', 'qwen-7b-chat', 'qwen-72b-chat']
     VLM_MODEL_PREFIX = ['qwen-vl-plus', 'qwen-vl-max', 'qvq-max', 'qvq-plus']
     MODEL_NAME = 'qwen-plus'
@@ -238,6 +245,13 @@ class QwenChat(OnlineChatModuleBase, FileHandlerBase):
             return None
 
     def set_deploy_parameters(self, **kw):
+        """设置模型部署参数。
+
+配置部署任务的相关参数，如容量规格等，用于后续模型部署。
+
+Args:
+    **kw: 部署参数键值对。
+"""
         self._deploy_paramters = kw
 
     def _create_deployment(self) -> Tuple[str, str]:
@@ -273,6 +287,15 @@ class QwenChat(OnlineChatModuleBase, FileHandlerBase):
 
 
 class QwenEmbed(LazyLLMOnlineEmbedModuleBase):
+    """通义千问在线文本嵌入模块。
+
+该类继承自OnlineEmbeddingModuleBase，提供了与通义千问文本嵌入API的交互能力，支持将文本转换为向量表示。
+
+Args:
+    embed_url (str, optional): 嵌入API的URL地址。默认为通义千问官方API地址
+    embed_model_name (str, optional): 嵌入模型名称。默认为 'text-embedding-v1'
+    api_key (str, optional): API密钥。默认为从配置中获取的 'qwen_api_key'
+"""
 
     def __init__(self,
                  embed_url: str = ('https://dashscope.aliyuncs.com/api/v1/services/'
@@ -317,6 +340,22 @@ class QwenEmbed(LazyLLMOnlineEmbedModuleBase):
 
 
 class QwenRerank(LazyLLMOnlineRerankModuleBase):
+    """通义千问的重排序模块，继承自OnlineEmbeddingModuleBase，用于对文档进行相关性重排序。
+
+Args:
+    embed_url (str): 重排序API的基础URL，默认为"https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"。
+    embed_model_name (str): 使用的模型名称，默认为"gte-rerank"。
+    api_key (str): 通义千问的API密钥，如果未提供则从lazyllm.config['qwen_api_key']读取。
+    **kwargs: 其他传递给基类的参数。
+
+属性：
+    type: 返回模型类型，固定为"ONLINE_RERANK"。
+
+主要功能：
+    - 对输入的查询和文档列表进行相关性重排序
+    - 支持自定义排序参数
+    - 返回每个文档的索引和相关性得分
+"""
 
     def __init__(self,
                  embed_url: str = ('https://dashscope.aliyuncs.com/api/v1/services/'
@@ -351,6 +390,25 @@ class QwenRerank(LazyLLMOnlineRerankModuleBase):
 
 
 class QwenMultiModal():
+    """通义千问的多模态基础模块，继承自OnlineMultiModalBase，用于处理多模态任务。
+
+Args:
+    api_key (str): API密钥，如果未提供则从lazyllm.config['qwen_api_key']读取。
+    model_name (str): 模型名称。
+    base_url (str): HTTP API的基础URL，默认为'https://dashscope.aliyuncs.com/api/v1'。
+    base_websocket_url (str): WebSocket API的基础URL，默认为'wss://dashscope.aliyuncs.com/api-ws/v1/inference'。
+    return_trace (bool): 是否返回调用追踪信息，默认为False。
+    **kwargs: 其他传递给基类的参数。
+
+功能特点：
+    1. 支持HTTP和WebSocket两种API调用方式
+    2. 使用DashScope客户端进行API调用
+    3. 提供统一的多模态接口
+    4. 可自定义基础URL和API密钥
+
+注意：
+    该类作为通义千问多模态功能的基础类，通常作为其他具体多模态实现（如语音转文本、文本生成图像等）的父类。
+"""
     __lazyllm_registry_disable__ = True
 
     def __init__(self, api_key: str = None, base_url: str = '', base_websocket_url: str = ''):
@@ -361,6 +419,14 @@ class QwenMultiModal():
 
 
 class QwenSTT(LazyLLMOnlineSTTModuleBase, QwenMultiModal):
+    """基于千问多模态接口的语音转文本（STT）模块，默认使用 ``paraformer-v2`` 模型。
+
+Args:
+    model (str): 模型名称。默认为 ``None``，将依次从 ``lazyllm.config['qwen_stt_model_name']`` 或 ``QwenSTT.MODEL_NAME`` 获取。
+    api_key (str): 千问 API 的密钥。默认为 ``None``。
+    return_trace (bool): 是否返回推理的中间 trace 信息。默认为 ``False``。
+    **kwargs: 传递给父类 ``QwenMultiModal`` 的额外参数。
+"""
     MODEL_NAME = 'paraformer-v2'
 
     def __init__(self, model: str = None, api_key: str = None, return_trace: bool = False,
@@ -400,6 +466,15 @@ class QwenSTT(LazyLLMOnlineSTTModuleBase, QwenMultiModal):
 
 
 class QwenText2Image(LazyLLMOnlineText2ImageModuleBase, QwenMultiModal):
+    """Qwen文本生成图像模块和图像编辑模块，继承自 QwenMultiModal，封装了调用 Qwen Wanx2.1-t2i-turbo 模型生成图像的能力和调用Qwen-image-edit-plus模型进行图像编辑的能力。  
+支持根据文本提示生成指定数量和分辨率的图像，支持图像编辑，并可设置负面提示、随机种子及扩展提示功能，通过 DashScope API 远程调用服务。
+
+Args:
+    model (Optional[str]): 使用的 Qwen 模型名称，默认从配置 'qwen_text2image_model_name' 获取，若未设置则使用 "wanx2.1-t2i-turbo"。
+    api_key (Optional[str]): 调用 DashScope 服务的 API Key。
+    return_trace (bool): 是否返回调试追踪信息，默认为 False。
+    **kwargs: 其他传递给 QwenMultiModal 的参数。
+"""
     MODEL_NAME = 'wanx2.1-t2i-turbo'
     IMAGE_EDITING_MODEL_NAME = 'qwen-image-edit-plus'
 
@@ -567,6 +642,31 @@ def synthesize_v2(input: str, model_name: str, voice: str, speech_rate: float, v
 
 
 class QwenTTS(LazyLLMOnlineTTSModuleBase, QwenMultiModal):
+    """通义千问的文本转语音模块，继承自QwenMultiModal，提供多种语音合成模型支持。
+
+Args:
+    model (str): 模型名称，默认为"qwen-tts"。可选模型包括：
+        - cosyvoice-v2
+        - cosyvoice-v1
+        - sambert
+        - qwen-tts
+        - qwen-tts-latest
+    api_key (str): API密钥，默认为None，将从lazyllm.config['qwen_api_key']读取。
+    return_trace (bool): 是否返回调用追踪信息，默认为False。
+    **kwargs: 其他传递给基类的参数。
+
+语音合成参数：
+
+    input (str): 要转换的文本内容。
+    voice (str): 说话人声音，默认使用模型默认声音。
+    speech_rate (float): 语速，默认为1.0。
+    volume (int): 音量，默认为50。
+    pitch (float): 音高，默认为1.0。
+
+注意：
+    - 不同的模型可能支持不同的声音选项
+    - 返回的音频数据会被自动编码为文件格式
+"""
     MODEL_NAME = 'qwen-tts'
     SYNTHESIZERS = {
         'cosyvoice-v2': (synthesize_v2, 'longxiaochun_v2'),

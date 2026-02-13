@@ -14,9 +14,6 @@ import time
 # ---------------------------------------------------------------------------- #
 
 def _gen_empty_func_str_from_parsed_docstring(parsed_docstring):
-    '''
-    returns a function prototype string
-    '''
 
     func_name = 'f' + str(int(time.time()))
     s = 'def ' + func_name + '('
@@ -51,6 +48,38 @@ def _check_return_type_is_the_same(doc_type_hints, func_type_hints) -> None:
 # ---------------------------------------------------------------------------- #
 
 class ModuleTool(ModuleBase, metaclass=LazyLLMRegisterMetaClass):
+    """用于构建工具模块的基类。
+
+该类封装了函数签名和文档字符串的自动解析逻辑，可生成标准化的参数模式（基于 pydantic），并对输入进行校验和工具调用的标准封装。
+
+`__init__(self, verbose=False, return_trace=True)`
+初始化工具模块。
+
+Args:
+    verbose (bool): 是否在执行过程中输出详细日志。
+    return_trace (bool): 是否在结果中保留中间执行痕迹。
+
+
+Examples:
+
+    >>> from lazyllm.components import ModuleTool
+    >>> class AddTool(ModuleTool):
+    ...     def apply(self, a: int, b: int) -> int:
+    ...         '''Add two integers.
+    ...
+    ...         Args:
+    ...             a (int): First number.
+    ...             b (int): Second number.
+    ...
+    ...         Returns:
+    ...             int: The sum of a and b.
+    ...         '''
+    ...         return a + b
+    >>> tool = AddTool()
+    >>> result = tool({'a': 3, 'b': 5})
+    >>> print(result)
+    8
+    """
     def __init__(self, verbose: bool = False, return_trace: bool = True):
         super().__init__(return_trace=return_trace)
         self._verbose = verbose
@@ -126,6 +155,23 @@ class ModuleTool(ModuleBase, metaclass=LazyLLMRegisterMetaClass):
         return set(self._params_schema.model_json_schema().get('required', []))
 
     def apply(self, *args: Any, **kwargs: Any) -> Any:
+        """
+工具函数的具体实现方法。
+
+这是一个抽象方法，需要在子类中具体实现工具的核心功能。
+
+Args:
+    *args (Any): 位置参数
+    **kwargs (Any): 关键字参数
+
+**Returns:**
+
+- 工具执行的结果
+
+**Raises:**
+
+    NotImplementedError: 如果未在子类中重写该方法。
+"""
         raise NotImplementedError('Implement apply function in subclass')
 
     def _validate_input(self, tool_input: Dict[str, Any]) -> Dict[str, Any]:
@@ -152,6 +198,18 @@ class ModuleTool(ModuleBase, metaclass=LazyLLMRegisterMetaClass):
             raise TypeError(f'tool_input {tool_input} only supports dict and str.')
 
     def validate_parameters(self, arguments: Dict[str, Any]) -> bool:
+        """
+验证参数是否满足所需条件。
+
+此方法会检查参数字典是否包含所有必须字段，并尝试进一步进行格式验证。
+
+Args:
+    arguments (Dict[str, Any]): 传入的参数字典。
+
+**Returns:**
+
+- bool: 若参数合法且完整，返回 True；否则返回 False。
+"""
         if len(self.required_args.difference(set(arguments.keys()))) == 0:
             # contains all required parameters
             try:
@@ -185,6 +243,65 @@ TOOL_CALL_FORMAT_EXAMPLE = (
 
 
 class ToolManager(ModuleBase):
+    """ToolManager是一个工具管理类，用于提供工具信息和工具调用给function call。
+
+此管理类构造时需要传入工具名字符串列表。此处工具名可以是LazyLLM提供的，也可以是用户自定义的，如果是用户自定义的，首先需要注册进LazyLLM中才可以使用。在注册时直接使用 `fc_register` 注册器，该注册器已经建立 `tool` group，所以使用该工具管理类时，所有函数都统一注册进 `tool` 分组即可。待注册的函数需要对函数参数进行注解，并且需要对函数增加功能描述，以及参数类型和作用描述。以方便工具管理类能对函数解析传给LLM使用。
+
+Args:
+    tools (List[str]): 工具名称字符串列表。
+    return_trace (bool): 是否返回中间步骤和工具调用信息。
+
+
+Examples:
+    >>> from lazyllm.tools import ToolManager, fc_register
+    >>> import json
+    >>> from typing import Literal
+    >>> @fc_register("tool")
+    >>> def get_current_weather(location: str, unit: Literal["fahrenheit", "celsius"]="fahrenheit"):
+    ...     '''
+    ...     Get the current weather in a given location
+    ...
+    ...     Args:
+    ...         location (str): The city and state, e.g. San Francisco, CA.
+    ...         unit (str): The temperature unit to use. Infer this from the users location.
+    ...     '''
+    ...     if 'tokyo' in location.lower():
+    ...         return json.dumps({'location': 'Tokyo', 'temperature': '10', 'unit': 'celsius'})
+    ...     elif 'san francisco' in location.lower():
+    ...         return json.dumps({'location': 'San Francisco', 'temperature': '72', 'unit': 'fahrenheit'})
+    ...     elif 'paris' in location.lower():
+    ...         return json.dumps({'location': 'Paris', 'temperature': '22', 'unit': 'celsius'})
+    ...     elif 'beijing' in location.lower():
+    ...         return json.dumps({'location': 'Beijing', 'temperature': '90', 'unit': 'fahrenheit'})
+    ...     else:
+    ...         return json.dumps({'location': location, 'temperature': 'unknown'})
+    ...
+    >>> @fc_register("tool")
+    >>> def get_n_day_weather_forecast(location: str, num_days: int, unit: Literal["celsius", "fahrenheit"]='fahrenheit'):
+    ...     '''
+    ...     Get an N-day weather forecast
+    ...
+    ...     Args:
+    ...         location (str): The city and state, e.g. San Francisco, CA.
+    ...         num_days (int): The number of days to forecast.
+    ...         unit (Literal['celsius', 'fahrenheit']): The temperature unit to use. Infer this from the users location.
+    ...     '''
+    ...     if 'tokyo' in location.lower():
+    ...         return json.dumps({'location': 'Tokyo', 'temperature': '10', 'unit': 'celsius', "num_days": num_days})
+    ...     elif 'san francisco' in location.lower():
+    ...         return json.dumps({'location': 'San Francisco', 'temperature': '75', 'unit': 'fahrenheit', "num_days": num_days})
+    ...     elif 'paris' in location.lower():
+    ...         return json.dumps({'location': 'Paris', 'temperature': '25', 'unit': 'celsius', "num_days": num_days})
+    ...     elif 'beijing' in location.lower():
+    ...         return json.dumps({'location': 'Beijing', 'temperature': '85', 'unit': 'fahrenheit', "num_days": num_days})
+    ...     else:
+    ...         return json.dumps({'location': location, 'temperature': 'unknown'})
+    ...
+    >>> tools = ["get_current_weather", "get_n_day_weather_forecast"]
+    >>> tm = ToolManager(tools)
+    >>> print(tm([{'name': 'get_n_day_weather_forecast', 'arguments': {'location': 'Beijing', 'num_days': 3}}])[0])
+    '{"location": "Beijing", "temperature": "85", "unit": "fahrenheit", "num_days": 3}'
+    """
     def __init__(self, tools: List[Union[str, Callable]], return_trace: bool = False):
         super().__init__(return_trace=return_trace)
         self._tools = self._load_tools(tools)
@@ -242,24 +359,6 @@ class ToolManager(ModuleBase):
 
     @staticmethod
     def _gen_args_info_from_moduletool_and_docstring(tool, parsed_docstring):
-        '''
-        returns a dict of param names containing at least
-          1. `type`
-          2. `description` of params
-
-        for example:
-            args = {
-                'foo': {
-                    'enum': ['baz', 'bar'],
-                    'type': 'string',
-                    'description': 'a string',
-                },
-                'bar': {
-                    'type': 'integer',
-                    'description': 'an integer',
-                }
-            }
-        '''
         tool_args = tool.args
         assert len(tool_args) == len(parsed_docstring.params), ('The parameter description and the actual '
                                                                 'number of input parameters are inconsistent.')

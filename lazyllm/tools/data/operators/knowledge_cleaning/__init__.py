@@ -8,6 +8,10 @@ from .kbc_chunk_generator_batch import (
     KBCSaveChunks,
 )
 
+from .kbc_text_cleaner import (
+    KBCGenerateCleanedTextSingle,
+)
+
 from .kbc_text_cleaner_batch import (
     KBCLoadRAWChunkFile,
     KBCGenerateCleanedText,
@@ -39,6 +43,7 @@ __all__ = [
     KBCLoadText,
     KBCChunkText,
     KBCSaveChunks,
+    KBCGenerateCleanedTextSingle,
     KBCLoadRAWChunkFile,
     KBCGenerateCleanedText,
     KBCSaveCleaned,

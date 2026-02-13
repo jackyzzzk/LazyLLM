@@ -12,6 +12,11 @@ from .readerBase import LazyLLMReaderBase, infer_torch_device
 from ..doc_node import DocNode
 
 class PPTXReader(LazyLLMReaderBase):
+    """用于解析 PPTX（PowerPoint）文件的读取器，能够提取幻灯片中的文本，并对嵌入图像进行视觉描述生成。
+
+Args:
+    return_trace (bool): 是否记录处理过程的 trace，默认为 True。
+"""
     def __init__(self, return_trace: bool = True) -> None:
         try:
             thirdparty.check_packages(['python-pptx', 'torch', 'Pillow', 'transformers'])

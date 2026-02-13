@@ -15,6 +15,13 @@ import uuid
 
 
 class DocManager(lazyllm.ModuleBase):
+    """
+DocManager类管理文档列表及相关操作，并通过API提供文档上传、删除、分组等功能。
+
+Args:
+    dlm (DocListManager): 文档列表管理器，用于处理具体的文档操作。
+
+"""
     def __init__(self, dlm: DocListManager) -> None:
         super().__init__()
         # disable path monitoring in case of competition adding/deleting files
@@ -29,10 +36,24 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.get('/', response_model=BaseResponse, summary='docs')
     def document(self):
+        """
+提供默认文档页面的重定向接口。
+
+**Returns:**
+
+- RedirectResponse: 重定向到 `/docs` 页面。
+"""
         return RedirectResponse(url='/docs')
 
     @app.get('/list_kb_groups')
     def list_kb_groups(self):
+        """
+列出所有文档分组的接口。
+
+**Returns:**
+
+- BaseResponse: 包含所有文档分组的数据。
+"""
         try:
             return BaseResponse(data=self._manager.list_all_kb_group())
         except Exception as e:
@@ -64,6 +85,19 @@ class DocManager(lazyllm.ModuleBase):
     @app.post('/upload_files')
     def upload_files(self, files: List['fastapi.UploadFile'], override: bool = False,  # noqa C901
                      metadatas: Optional[str] = None, user_path: Optional[str] = None):
+        """
+上传文件并更新其状态的接口。可以同时上传多个文件。
+
+Args:
+    files (List[UploadFile]): 上传的文件列表。
+    override (bool): 是否覆盖已存在的文件。默认为False。
+    metadatas (Optional[str]): 文件的元数据，JSON格式。
+    user_path (Optional[str]): 用户自定义的文件上传路径。
+
+**Returns:**
+
+- BaseResponse: 上传结果和文件ID。
+"""
         try:
             if user_path: user_path = user_path.lstrip('/')
             if metadatas:
@@ -115,6 +149,18 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/add_files')
     def add_files(self, request: AddFilesRequest):
+        """
+批量添加文件。
+
+Args:
+    files (List[UploadFile]): 上传的文件列表。
+    group_name (str): 目标知识库分组名称，为空时不添加到分组。
+    metadatas (Optional[str]): 文件的元数据，JSON格式。
+
+**Returns:**
+
+- BaseResponse:返回所有输入文件对应的唯一文件ID列表，包括新增和已存在的文件。若出现异常，则返回错误码和异常信息。
+"""
         files = request.files
         group_name = request.group_name
         metadatas = request.metadatas
@@ -163,6 +209,18 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.get('/list_files')
     def list_files(self, limit: Optional[int] = None, details: bool = True, alive: Optional[bool] = None):
+        """
+列出已上传文件的接口。
+
+Args:
+    limit (Optional[int]): 返回的文件数量限制。默认为None。
+    details (bool): 是否返回详细信息。默认为True。
+    alive (Optional[bool]): 如果为True，只返回未删除的文件。默认为None。
+
+**Returns:**
+
+- BaseResponse: 文件列表数据。
+"""
         try:
             status = [DocListManager.Status.success, DocListManager.Status.waiting, DocListManager.Status.working,
                       DocListManager.Status.failed] if alive else DocListManager.Status.all
@@ -172,6 +230,19 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.get('/reparse_files')
     def reparse_files(self, file_ids: List[str], group_name: Optional[str] = None):
+        """重新解析指定的文件。
+
+Args:
+    file_ids (List[str]): 需要重新解析的文件ID列表。
+    group_name (Optional[str]): 文件组名称，默认为None。
+
+**Returns:**
+
+- BaseResponse: 包含以下字段的响应对象：
+    - code (int): 状态码，200表示成功。
+    - msg (str): 错误信息（如果有）。
+    - data: None。
+"""
         try:
             self._manager.update_need_reparsing(file_ids, group_name)
             return BaseResponse()
@@ -181,6 +252,18 @@ class DocManager(lazyllm.ModuleBase):
     @app.get('/list_files_in_group')
     def list_files_in_group(self, group_name: Optional[str] = None,
                             limit: Optional[int] = None, alive: Optional[bool] = None):
+        """
+列出指定分组中文件的接口。
+
+Args:
+    group_name (Optional[str]): 文件分组名称。
+    limit (Optional[int]): 返回的文件数量限制。默认为None。
+    alive (Optional[bool]): 是否只返回未删除的文件。
+
+**Returns:**
+
+- BaseResponse: 分组文件列表。
+"""
         try:
             status = [DocListManager.Status.success, DocListManager.Status.waiting, DocListManager.Status.working,
                       DocListManager.Status.failed] if alive else DocListManager.Status.all
@@ -194,6 +277,16 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/add_files_to_group_by_id')
     def add_files_to_group_by_id(self, request: FileGroupRequest):
+        """
+通过文件ID将文件添加到指定分组的接口。
+
+Args:
+    request (FileGroupRequest): 包含文件ID和分组名称的请求。
+
+**Returns:**
+
+- BaseResponse: 操作结果。
+"""
         try:
             self._manager.add_files_to_kb_group(request.file_ids, request.group_name)
             return BaseResponse()
@@ -203,6 +296,20 @@ class DocManager(lazyllm.ModuleBase):
     @app.post('/add_files_to_group')
     def add_files_to_group(self, files: List['fastapi.UploadFile'], group_name: str, override: bool = False,
                            metadatas: Optional[str] = None, user_path: Optional[str] = None):
+        """
+将文件上传后直接添加到指定分组的接口。
+
+Args:
+    files (List[UploadFile]): 上传的文件列表。
+    group_name (str): 要添加到的分组名称。
+    override (bool): 是否覆盖已存在的文件。默认为False。
+    metadatas (Optional[str]): 文件元数据，JSON格式。
+    user_path (Optional[str]): 用户自定义的文件上传路径。
+
+**Returns:**
+
+- BaseResponse: 操作结果和文件ID。
+"""
         try:
             response = self.upload_files(files, override=override, metadatas=metadatas, user_path=user_path)
             if response.code != 200: return response
@@ -214,6 +321,16 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/delete_files')
     def delete_files(self, request: FileGroupRequest):
+        """
+删除指定文件的接口。
+
+Args:
+    request (FileGroupRequest): 包含文件ID和分组名称的请求。
+
+**Returns:**
+
+- BaseResponse: 删除操作结果。
+"""
         try:
             if request.group_name:
                 return self.delete_files_from_group(request)
@@ -230,6 +347,16 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/delete_files_from_group')
     def delete_files_from_group(self, request: FileGroupRequest):
+        """
+删除指定分组中的文件的接口。
+
+Args:
+    request (FileGroupRequest): 包含文件ID列表和分组名称的请求参数。
+
+**Returns:**
+
+- BaseResponse: 删除操作结果。
+"""
         try:
             self._manager.update_kb_group(cond_file_ids=request.file_ids, cond_group=request.group_name,
                                           new_status=DocListManager.Status.deleting)
@@ -243,6 +370,16 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/add_metadata')
     def add_metadata(self, add_metadata_request: AddMetadataRequest):
+        """
+为指定文档添加或更新元数据的接口。
+
+Args:
+    add_metadata_request (AddMetadataRequest): 包含文档ID列表和键值对元数据的请求。
+
+**Returns:**
+
+- BaseResponse: 操作结果信息。
+"""
         doc_ids = add_metadata_request.doc_ids
         kv_pair = add_metadata_request.kv_pair
         try:
@@ -289,6 +426,16 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/delete_metadata_item')
     def delete_metadata_item(self, del_metadata_request: DeleteMetadataRequest):
+        """
+删除指定文档的元数据字段或字段值的接口。
+
+Args:
+    del_metadata_request (DeleteMetadataRequest): 包含文档ID列表、字段名和键值对删除条件的请求。
+
+**Returns:**
+
+- BaseResponse: 操作结果信息。
+"""
         doc_ids = del_metadata_request.doc_ids
         kv_pair = del_metadata_request.kv_pair
         keys = del_metadata_request.keys
@@ -322,6 +469,16 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/update_or_create_metadata_keys')
     def update_or_create_metadata_keys(self, update_metadata_request: UpdateMetadataRequest):
+        """
+更新或创建文档元数据字段的接口。
+
+Args:
+    update_metadata_request (UpdateMetadataRequest): 包含文档ID列表和需更新或新增的键值对元数据。
+
+**Returns:**
+
+- BaseResponse: 操作结果信息。
+"""
         doc_ids = update_metadata_request.doc_ids
         kv_pair = update_metadata_request.kv_pair
         try:
@@ -345,6 +502,16 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/reset_metadata')
     def reset_metadata(self, reset_metadata_request: ResetMetadataRequest):
+        """
+重置指定文档的所有元数据字段。
+
+Args:
+    reset_metadata_request (ResetMetadataRequest): 包含文档ID列表和新的元数据字典。
+
+**Returns:**
+
+- BaseResponse: 操作结果信息。
+"""
         doc_ids = reset_metadata_request.doc_ids
         new_meta = reset_metadata_request.new_meta
         try:
@@ -362,6 +529,16 @@ class DocManager(lazyllm.ModuleBase):
 
     @app.post('/query_metadata')
     def query_metadata(self, query_metadata_request: QueryMetadataRequest):
+        """
+查询指定文档的元数据。
+
+Args:
+    query_metadata_request (QueryMetadataRequest): 请求参数，包含文档ID和可选的字段名。
+
+**Returns:**
+
+- BaseResponse: 若指定了 key 且存在，返回对应字段值；否则返回整个 metadata；key 不存在时报错。
+"""
         doc_id = query_metadata_request.doc_id
         key = query_metadata_request.key
         try:

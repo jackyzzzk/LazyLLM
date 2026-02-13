@@ -19,6 +19,32 @@ WORKER_ERROR_RETRY_INTERVAL = 5.0
 
 
 class DocumentProcessorWorker(ModuleBase):
+    """
+文档处理消费者线程类，启动后将负责处理文档处理服务中的任务，并将其结果返回给服务。
+模块支持独立部署，也可直接在 DocumentProcessor 中通过设置 num_workers 参数自动启动工作线程。
+
+Args:
+    db_config (Optional[Dict[str, Any]]): 用于配置SqlManager实现数据库连接，默认为None，当为None时，使用默认数据库配置。
+    num_workers (int): 工作线程数，默认为1， 当大于1时，内部基于ray集群启动多个工作线程，否则仅启动一个工作线程。
+    port (Optional[int]): 服务端口号。默认为None，当为None时，将自动分配端口。
+
+
+Examples:
+
+    ```python
+    db_config = {
+        'db_type': 'sqlite',
+        'user': None,
+        'password': None,
+        'host': None,
+        'port': None,
+        'db_name': '/xxx/xxx/test.db',
+    }
+    # Create worker and start it
+    worker = DocumentProcessorWorker(db_config=db_config, num_workers=2, port=28888)
+    worker.start()
+    ```
+    """
 
     class _Impl():
         def __init__(self, db_config: dict = None):
@@ -272,6 +298,9 @@ class DocumentProcessorWorker(ModuleBase):
             return getattr(impl, method)(*args, **kwargs)
 
     def start(self):
+        """
+启动文档处理消费者线程，该方法会启动工作线程，并启动服务端口，后续可使用该服务处理文档。若初始化时设置了工作线程数大于1，则会启动多个工作线程，否则仅启动一个工作线程。
+"""
         result = super().start()
         LOG.info('[DocumentProcessorWorker] Starting worker...')
         self._dispatch('start')

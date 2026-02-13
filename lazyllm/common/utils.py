@@ -16,9 +16,6 @@ def check_path(
     file: bool = True,
     parents: bool = True,
 ) -> str:
-    '''
-    Check path and return corrected path.
-    '''
     # normalize and expand a path
     path = normpath(expandvars(expanduser(path)))
     if exist and file and not isfile(path):
@@ -33,13 +30,17 @@ def check_path(
     return path
 
 class SecurityVisitor(ast.NodeVisitor):  # noqa C901
-    '''
-    AST-based security analyzer to detect unsafe operations in Python code.
+    """基于AST的Python代码安全分析器，用于检测不安全的操作。
 
-    IMPORTANT: Method names within this class (e.g., `visit_Call`, `visit_Import`) **should not**
-    be renamed to lowercase. These method names are part of the `NodeVisitor` pattern from the `ast`
-    module and must remain consistant with this naming convention to function correctly.
-    '''
+属性：
+    DANGEROUS_BUILTINS (set): 危险的内置函数集合，包括exec、eval、open等。
+    DANGEROUS_OS_CALLS (set): 危险的os操作集合，包括system、popen、remove等。
+    DANGEROUS_SYS_CALLS (set): 危险的sys操作集合，包括exit、modules等。
+    DANGEROUS_MODULES (set): 危险的模块集合，包括pickle、subprocess、socket等。
+
+注意：
+    此类继承自ast.NodeVisitor，用于遍历和检查Python代码的抽象语法树。
+"""
 
     # **Dangerous built-in functions**
     DANGEROUS_BUILTINS = {'exec', 'eval', 'open', 'compile', 'getattr',
@@ -55,7 +56,19 @@ class SecurityVisitor(ast.NodeVisitor):  # noqa C901
     DANGEROUS_MODULES = {'pickle', 'subprocess', 'socket', 'shutil', 'requests', 'inspect', 'tempfile'}
 
     def visit_Call(self, node):  # noqa C901
-        '''Check function calls'''
+        """检查函数调用的安全性。
+
+检查内容：
+1. 危险的内置函数调用
+2. 危险的os模块调用
+3. 危险的sys模块调用
+
+Args:
+    node (ast.Call): AST函数调用节点。
+
+Raises:
+    ValueError: 当检测到危险的函数调用时抛出。
+"""
         # Direct calls to dangerous built-in functions
         if isinstance(node.func, ast.Name) and node.func.id in self.DANGEROUS_BUILTINS:
             raise ValueError(f'⚠️ Detected dangerous function call: {node.func.id}')
@@ -91,18 +104,43 @@ class SecurityVisitor(ast.NodeVisitor):  # noqa C901
         self.generic_visit(node)
 
     def visit_Import(self, node):
-        '''Check import statements'''
+        """检查import语句的安全性。
+
+Args:
+    node (ast.Import): AST导入节点。
+
+Raises:
+    ValueError: 当检测到危险模块的导入时抛出。
+"""
         for alias in node.names:
             if alias.name in self.DANGEROUS_MODULES:
                 raise ValueError(f'⚠️ Detected dangerous module import: {alias.name}')
 
     def visit_ImportFrom(self, node):
-        '''Check from ... import statements'''
+        """检查from...import语句的安全性。
+
+Args:
+    node (ast.ImportFrom): AST from-import节点。
+
+Raises:
+    ValueError: 当检测到危险模块的导入时抛出。
+"""
         if node.module in self.DANGEROUS_MODULES:
             raise ValueError(f'⚠️ Detected dangerous module import: {node.module}')
 
     def visit_Attribute(self, node):
-        '''Check os.environ and tempfile usage'''
+        """检查属性访问的安全性。
+
+检查内容：
+1. os.environ的访问
+2. tempfile模块的使用
+
+Args:
+    node (ast.Attribute): AST属性访问节点。
+
+Raises:
+    ValueError: 当检测到危险的属性访问时抛出。
+"""
         if isinstance(node.value, ast.Name):
             if node.value.id == 'os' and node.attr == 'environ':
                 raise ValueError('⚠️ Detected dangerous access: os.environ')
@@ -112,21 +150,18 @@ class SecurityVisitor(ast.NodeVisitor):  # noqa C901
         self.generic_visit(node)
 
     def visit_Lambda(self, node):
-        '''Check lambda functions that might return __import__'''
         # Check if lambda body returns __import__
         if isinstance(node.body, ast.Name) and node.body.id == '__import__':
             raise ValueError('⚠️ Detected lambda function returning __import__')
         self.generic_visit(node)
 
     def visit_ListComp(self, node):
-        '''Check list comprehensions that might contain __import__'''
         # Check if the expression in list comprehension is __import__
         if isinstance(node.elt, ast.Name) and node.elt.id == '__import__':
             raise ValueError('⚠️ Detected list comprehension containing __import__')
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node):
-        '''Check function definitions that might return __import__'''
         # Check if function returns __import__
         for stmt in node.body:
             if isinstance(stmt, ast.Return):
@@ -135,6 +170,21 @@ class SecurityVisitor(ast.NodeVisitor):  # noqa C901
         self.generic_visit(node)
 
 def compile_func(func_code: str, global_env: Optional[Dict[str, Any]] = None) -> Callable:
+    """
+将一段 python 函数字符串编译成一个可执行函数并返回。
+
+Args:
+    func_code (str): 包含 python 函数代码的字符串
+    global_env (str): 在 python 函数中用到的包和全局变量
+
+
+Examples:
+
+    from lazyllm.common import compile_func
+    code_str = 'def Identity(v): return v'
+    identity = compile_func(code_str)
+    assert identity('hello') == 'hello'
+    """
     fname = re.search(r'def\s+(\w+)\s*\(', func_code).group(1)
     module = ast.parse(func_code)
     SecurityVisitor().visit(module)
@@ -150,7 +200,6 @@ def str2obj(data: str) -> Any:
     return None if data is None else pickle.loads(base64.b64decode(data.encode('utf-8')))
 
 def str2bool(v: str) -> bool:
-    ''' Boolean type converter '''
     if isinstance(v, bool):
         return v
     if v.lower() in ('yes', 'true', 't', 'y', '1', 'on'):

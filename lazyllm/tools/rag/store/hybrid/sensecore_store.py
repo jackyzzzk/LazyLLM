@@ -40,6 +40,26 @@ class Segment(BaseModel):
 
 
 class SenseCoreStore(LazyLLMStoreBase):
+    """SenseCore 混合存储实现，继承自 LazyLLMStoreBase，提供基于 SenseCore 平台的文档存储和检索功能。
+该类支持文档的序列化存储、多模态内容处理、混合搜索等功能，通过 S3 存储和 SenseCore API 实现高效的文档管理。
+
+功能特性:
+    - 支持全功能存储能力（StoreCapability.ALL），包括插入、删除、查询、搜索等操作。
+    - 自动处理图像内容，将本地图像上传到 S3 存储并生成访问链接。
+    - 支持多模态搜索，包括文本和图像混合查询。
+    - 提供文档序列化和反序列化功能，支持复杂数据结构存储。
+    - 支持批量操作和异步任务处理，提高存储效率。
+    - 集成 S3 存储和 SenseCore API，实现云端文档管理。
+
+Args:
+    uri (str): SenseCore 服务的 API 地址，默认为空字符串。
+    **kwargs: 其他配置参数，包括 s3_config 和 image_url_config。
+
+配置参数:
+    s3_config (dict): S3 存储配置，包含 bucket_name、access_key、secret_access_key 等。
+    image_url_config (dict): 图像 URL 生成配置，用于多模态搜索。
+
+"""
     capability = StoreCapability.ALL
     need_embedding = False
     supports_index_registration = False

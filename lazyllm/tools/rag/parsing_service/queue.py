@@ -6,7 +6,6 @@ from ..utils import _orm_to_dict
 
 
 class _SQLBasedQueue:
-    '''a generic queue implementation based on SQL, use table to store messages, support FIFO and priority'''
 
     def __init__(self, table_name: str, columns: List[Dict[str, Any]], db_config: Dict[str, Any],
                  order_by: str = None, order_desc: bool = False):
@@ -71,7 +70,6 @@ class _SQLBasedQueue:
             raise
 
     def dequeue(self, filter_by: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
-        '''dequeue a message from the queue'''
         try:
             with self._sql_manager.get_session() as session:
                 query = self._build_query(session, filter_by)

@@ -16,6 +16,7 @@ _pickle_blacklist = {'_store', '_node_groups'}
 
 
 class MetadataMode(str, Enum):
+    """An enumeration."""
     ALL = auto()
     EMBED = auto()
     LLM = auto()
@@ -24,6 +25,21 @@ class MetadataMode(str, Enum):
 
 @reset_on_pickle(('_lock', threading.Lock))
 class DocNode:
+    """
+在指定的文档上执行设定的任务。
+
+Args:
+    uid(str): 唯一标识符。
+    content(Union[str, List[Any]]):节点内容
+    group(str):文档组名
+    embedding(Dict[str, List[float]]):嵌入向量字典
+    parent(Union[str, "DocNode"]):父节点引用
+    store:存储表示
+    node_groups(Dict[str, Dict]):节点存储组
+    metadata(Dict[str, Any]):节点级元数据
+    global_metadata(Dict[str, Any]):文档级元数据
+    text(str):节点内容与content互斥
+"""
     def __init__(self, uid: Optional[str] = None, content: Optional[Union[str, List[Any]]] = None,
                  group: Optional[str] = None, embedding: Optional[Dict[str, List[float]]] = None,
                  parent: Optional[Union[str, 'DocNode']] = None, store=None,
@@ -205,11 +221,23 @@ class DocNode:
         self.global_metadata[RAG_DOC_PATH] = str(path)
 
     def get_children_str(self) -> str:
+        """获取子节点的字符串表示。
+
+**Returns:**
+
+- str: 返回一个字符串，表示子节点的字典格式，其中键为组名，值为该组中所有子节点的UID列表。
+"""
         return str(
             {key: [node._uid for node in nodes] for key, nodes in self.children.items()}
         )
 
     def get_parent_id(self) -> str:
+        """获取父节点的唯一标识符。
+
+**Returns:**
+
+- str: 返回父节点的UID，如果没有父节点则返回空字符串。
+"""
         return self.parent._uid if self.parent else ''
 
     def __str__(self) -> str:
@@ -236,23 +264,52 @@ class DocNode:
         return st
 
     def has_missing_embedding(self, embed_keys: Union[str, List[str]]) -> List[str]:
+        """
+检查缺失的嵌入向量
+
+Args:
+    embed_keys(Union[str, List[str]]): 目标键列表
+"""
         if isinstance(embed_keys, str): embed_keys = [embed_keys]
         assert len(embed_keys) > 0, 'The ebmed_keys to be checked must be passed in.'
         if self.embedding is None: return embed_keys
         return [k for k in embed_keys if k not in self.embedding]
 
     def do_embedding(self, embed: Dict[str, Callable]) -> None:
+        """
+执行嵌入计算
+
+Args:
+    embed(Dict[str, Callable]): 目标嵌入对象
+"""
         generate_embed = {k: e(self.get_text(MetadataMode.EMBED)) for k, e in embed.items()}
         with self._lock:
             self.embedding = self.embedding or {}
             self.embedding = {**self.embedding, **generate_embed}
 
     def set_embedding(self, embed_key, embed_value) -> None:
+        """设置文档节点的嵌入向量。
+
+为文档节点设置指定键的嵌入向量值，用于后续的检索和相似度计算。
+
+Args:
+    embed_key (str): 嵌入向量的键名
+    embed_value: 嵌入向量的值
+
+Returns:
+    None
+"""
         with self._lock:
             self.embedding = self.embedding or {}
             self.embedding[embed_key] = embed_value
 
     def check_embedding_state(self, embed_key: str) -> None:
+        """
+阻塞检查嵌入状态,确保异步嵌入计算完成
+
+Args:
+    embed_key(str): 目标键列表
+"""
         while True:
             with self._lock:
                 if not self.has_missing_embedding(embed_key):
@@ -261,10 +318,24 @@ class DocNode:
             time.sleep(1)
 
     def get_content(self) -> str:
+        """获取节点的内容文本，包含LLM模式的元数据。
+
+**Returns:**
+
+- str: 返回节点的文本内容，包含根据LLM模式格式化的元数据信息。
+"""
         return self.get_text(MetadataMode.LLM)
 
     def get_metadata_str(self, mode: MetadataMode = MetadataMode.ALL) -> str:
-        '''Metadata info string.'''
+        """
+获取格式化元数据字符串
+
+Args:
+    mode: MetadataMode.NONE返回空字符串；
+          MetadataMode.LLM过滤排除LLM不需要的元数据；
+          MetadataMode.EMBED过滤排除嵌入模型不需要的元数据；
+          MetadataMode.ALL返回全部元数据。
+"""
         if mode == MetadataMode.NONE:
             return ''
 
@@ -281,26 +352,60 @@ class DocNode:
         return '\n'.join([f'{key}: {self.metadata[key]}' for key in metadata_keys])
 
     def get_text(self, metadata_mode: MetadataMode = MetadataMode.NONE) -> str:
+        """
+组合元数据和内容
+
+Args:
+    metadata_mode: 与get_metadata_str中参数一致
+"""
         metadata_str = self.get_metadata_str(metadata_mode).strip()
         if not metadata_str:
             return self.text if self.text else ''
         return f'{metadata_str}\n\n{self.text}'.strip()
 
     def to_dict(self) -> Dict:
+        """
+转换为字典格式
+"""
         return dict(content=self._content, embedding=self.embedding, metadata=self.metadata)
 
     def with_score(self, score):
+        """
+浅拷贝原节点并添加语义相关分数。
+
+Args:
+    score: 相关性得分
+"""
         node = copy.copy(self)
         node.relevance_score = score
         return node
 
     def with_sim_score(self, score):
+        """
+浅拷贝原节点并添加相似度分数。
+
+Args:
+    score: 相似度得分
+"""
         node = copy.copy(self)
         node.similarity_score = score
         return node
 
 
 class QADocNode(DocNode):
+    """问答文档节点类，用于存储问答对数据。
+
+Args:
+    query (str): 问题文本。
+    answer (str): 答案文本。
+    uid (str): 唯一标识符。
+    group (str): 文档组名。
+    embedding (Dict[str, List[float]]): 嵌入向量字典。
+    parent (DocNode): 父节点引用。
+    metadata (Dict[str, Any]): 节点级元数据。
+    global_metadata (Dict[str, Any]): 文档级元数据。
+    text (str): 节点内容，与query互斥。
+"""
     def __init__(self, query: str, answer: str, uid: Optional[str] = None, group: Optional[str] = None,
                  embedding: Optional[Dict[str, List[float]]] = None, parent: Optional['DocNode'] = None,
                  metadata: Optional[Dict[str, Any]] = None, global_metadata: Optional[Dict[str, Any]] = None,
@@ -314,12 +419,57 @@ class QADocNode(DocNode):
         return self._answer
 
     def get_text(self, metadata_mode: MetadataMode = MetadataMode.NONE) -> str:
+        """获取节点的文本内容。
+
+Args:
+    metadata_mode (MetadataMode): 元数据模式，默认为MetadataMode.NONE。
+        当设置为MetadataMode.LLM时，返回格式化的问答对。
+        其他模式下返回基类的文本格式。
+
+**Returns:**
+
+- str: 格式化后的文本内容。
+"""
         if metadata_mode == MetadataMode.LLM:
             return f'query:\n{self.text}\nanswer\n{self._answer}'
         return super().get_text(metadata_mode)
 
 
 class ImageDocNode(DocNode):
+    """专门用于处理RAG系统中图像内容的文档节点。
+
+ImageDocNode继承自DocNode，为图像处理和嵌入生成提供专门的功能。它自动处理图像加载、用于嵌入的base64编码，以及用于LLM处理的PIL图像对象。
+
+Args:
+    image_path (str): 图像文件的文件路径。这应该是一个有效的图像文件路径（例如.jpg、.png、.jpeg）。
+    uid (Optional[str]): 文档节点的唯一标识符。如果未提供，将自动生成UUID。
+    group (Optional[str]): 此节点所属的组名。用于组织和过滤节点。
+    embedding (Optional[Dict[str, List[float]]]): 图像的预计算嵌入。键是嵌入模型名称，值是嵌入向量。
+    parent (Optional[DocNode]): 文档层次结构中的父节点。用于构建文档树。
+    metadata (Optional[Dict[str, Any]]): 与图像节点关联的附加元数据。
+    global_metadata (Optional[Dict[str, Any]]): 适用于文档中所有节点的全局元数据。
+    text (Optional[str]): 图像的可选文本描述或标题。
+
+
+Examples:
+    >>> from lazyllm.tools.rag.doc_node import ImageDocNode, MetadataMode
+    >>> import numpy as np
+    >>> image_node = ImageDocNode(
+    ...     image_path="/home/mnt/yehongfei/Code/Test/framework.jpg",
+    ...     text="这是一张照片"
+    )
+    >>> def clip_emb(content, modality="image"):
+    ...     if modality == "image":
+    ...         return [np.random.rand(512).tolist()]
+    ...     return [np.random.rand(256).tolist()]
+    >>> embed_functions = {"clip": clip_emb}
+    >>> image_node.do_embedding(embed_functions)
+    >>> print(f"嵌入维度: {len(image_node.embedding['clip'])}")
+    >>> text_representation = image_node.get_text()
+    >>> content_representation = image_node.get_content(MetadataMode.EMBED)
+    >>> print(f"text属性: {text_representation}")
+    >>> print(f"content属性: {content_representation}")
+    """
     def __init__(self, image_path: str, uid: Optional[str] = None, group: Optional[str] = None,
                  embedding: Optional[Dict[str, List[float]]] = None, parent: Optional['DocNode'] = None,
                  metadata: Optional[Dict[str, Any]] = None, global_metadata: Optional[Dict[str, Any]] = None,
@@ -330,6 +480,13 @@ class ImageDocNode(DocNode):
         self._modality = 'image'
 
     def do_embedding(self, embed: Dict[str, Callable]) -> None:
+        """使用提供的嵌入函数为图像生成嵌入。
+
+此方法重写父类方法以处理图像特定的嵌入生成。它自动将图像转换为适当的格式（用于嵌入的base64），并使用图像模态调用嵌入函数。
+
+Args:
+    embed (Dict[str, Callable]): 嵌入函数字典。键是嵌入模型名称，值是接受(content, modality)并返回嵌入向量的可调用函数。
+"""
         for k, e in embed.items():
             emb = e(self.get_content(MetadataMode.EMBED), modality=self._modality)
             generate_embed = {k: emb[0]}
@@ -339,6 +496,20 @@ class ImageDocNode(DocNode):
             self.embedding = {**self.embedding, **generate_embed}
 
     def get_content(self, metadata_mode=MetadataMode.LLM) -> str:
+        """根据元数据模式获取不同格式的图像内容。
+
+此方法根据预期用例返回不同格式的图像内容。对于LLM处理，它返回PIL图像对象。对于嵌入生成，它返回base64编码的图像字符串。
+
+Args:
+    metadata_mode (MetadataMode, optional): 内容检索模式。默认为MetadataMode.LLM。
+        - MetadataMode.LLM: 返回用于LLM处理的PIL图像对象
+        - MetadataMode.EMBED: 返回用于嵌入生成的base64编码图像
+        - 其他模式: 返回图像路径作为文本
+
+**Returns:**
+
+- Union[PIL.Image.Image, List[str], str]: 请求格式的图像内容。
+"""
         if metadata_mode == MetadataMode.LLM:
             return PIL.Image.open(self._image_path)
         elif metadata_mode == MetadataMode.EMBED:
@@ -352,6 +523,14 @@ class ImageDocNode(DocNode):
         return self._image_path
 
     def get_text(self) -> str:  # Disable access to self._content
+        """获取图像路径作为文本表示。
+
+此方法重写父类方法以返回图像路径而不是内容字段，因为ImageDocNode不使用内容字段存储文本。
+
+**Returns:**
+
+- str: 图像文件路径。
+"""
         return self._image_path
 
     @property
@@ -359,6 +538,24 @@ class ImageDocNode(DocNode):
         return self._image_path
 
 class JsonDocNode(DocNode):
+    """用于处理RAG系统中JSON内容的专用文档节点。
+
+JsonDocNode继承自DocNode，提供存储和处理JSON数据（字典或列表）的功能。它自动将JSON内容序列化为字符串格式，并支持通过JsonFormatter进行自定义格式化。
+
+Args:
+    uid (Optional[str]): 文档节点的唯一标识符。如果未提供，将自动生成UUID。
+    content (Optional[Union[Dict[str, Any], List[Any]]]): 要存储的JSON内容。可以是字典或列表。
+    group (Optional[str]): 此节点所属的组名。用于组织和过滤节点。
+    embedding (Optional[Dict[str, List[float]]]): 预计算的嵌入。键是嵌入模型名称，值是嵌入向量。
+    parent (Optional[DocNode]): 文档层次结构中的父节点。用于构建文档树。
+    metadata (Optional[Dict[str, Any]]): 与节点关联的附加元数据。
+    global_metadata (Optional[Dict[str, Any]]): 适用于文档中所有节点的全局元数据。
+    formatter (JsonFormatter, optional): 用于自定义JSON内容表示的格式化器。在获取用于嵌入的内容时使用。
+
+Notes:
+    - text属性返回序列化为字符串的JSON内容。
+    - 当提供formatter时，get_content()在向量化模式下使用它进行输出格式化，仅向量化指定的字段，使用换行符连接。
+"""
     def __init__(self, uid: Optional[str] = None, content: Optional[Union[Dict[str, Any], List[Any]]] = None,
                  group: Optional[str] = None, embedding: Optional[Dict[str, List[float]]] = None,
                  parent: Optional['DocNode'] = None, metadata: Optional[Dict[str, Any]] = None,
@@ -397,6 +594,24 @@ class JsonDocNode(DocNode):
         return json.loads(content)
 
 class RichDocNode(DocNode):
+    """用于聚合多个带有独立元数据的段落节点的专用文档节点，以保持每个文档进有一个root node。
+
+RichDocNode继承自DocNode，用于封装reader返回的多个子节点（通常是段落）。它保留完整的文档文本内容，同时允许每个子节点维护自己的元数据。结合RichTransform使用时，可以恢复出原始的DocNode实例（带有元信息）。
+
+Args:
+    nodes (List[DocNode]): 要聚合的段落节点列表。每个节点的文本会被合并到content中。
+    uid (Optional[str]): 文档节点的唯一标识符。如果未提供，将自动生成UUID。
+    group (Optional[str]): 此节点所属的组名。用于组织和过滤节点。
+    embedding (Optional[Dict[str, List[float]]]): 预计算的嵌入。键是嵌入模型名称，值是嵌入向量。
+    parent (Optional[DocNode]): 文档层次结构中的父节点。用于构建文档树。
+    metadata (Optional[Dict[str, Any]]): 与节点关联的附加元数据。
+    global_metadata (Optional[Dict[str, Any]]): 适用于文档中所有节点的全局元数据。
+
+Notes:
+    - 通常由PDF reader在单个文档产生多个节点时返回，作为root node。
+    - 原始段落节点存储在内部，可通过RichTransform访问恢复。
+    - 以段落文本列表的形式在content字段中保留整篇文档文本。
+"""
     def __init__(self, nodes: List[DocNode], uid: Optional[str] = None,
                  group: Optional[str] = None, embedding: Optional[Dict[str, List[float]]] = None,
                  parent: Optional['DocNode'] = None, metadata: Optional[Dict[str, Any]] = None,

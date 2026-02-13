@@ -1,0 +1,1 @@
+{"query": "What is AI?", "pos": ["AI is artificial intelligence", "ML is machine learning"], "_corpus": "/tmp/embedding_corpus_139909599836352.json", "_semantic_embeddings_path": "/tmp/embeddings_139909599753984.npy", "_semantic_corpus": ["ML is machine learning", "AI is artificial intelligence"], "neg": []}

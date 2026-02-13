@@ -75,6 +75,41 @@ def _download_pdf(url, save_path):
 
 
 class FileOrURLNormalizer(kbc):
+    """文件或URL标准化算子。
+
+该算子根据输入类型（文件或URL）自动识别文件格式，进行标准化处理。
+支持PDF、HTML/XML、TXT/MD等文件格式，以及网页URL。对于网络PDF，会先下载到本地。
+
+Args:
+    intermediate_dir (str): 中间文件保存目录，默认为 'intermediate'。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 标准化后的数据，包含以下字段：
+    - _type: 文件类型 ('pdf', 'html', 'text', 'invalid', 'unsupported')
+    - _raw_path: 本地文件路径（如果有）
+    - _url: URL地址（如果是网页）
+    - _output_path: 预期的Markdown输出路径
+    - _error: 错误信息（如果有）
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    normalizer = kbc.FileOrURLNormalizer(intermediate_dir='./temp')
+
+    # For file input
+    data = {'source': '/path/to/document.pdf'}
+    result = normalizer(data)
+    # Returns: {'source': '/path/to/document.pdf', '_type': 'pdf', '_raw_path': '/path/to/document.pdf', '_output_path': './temp/document.md'}
+
+    # For URL input
+    data = {'source': 'https://example.com/page.html'}
+    result = normalizer(data)
+    # Returns: {'source': 'https://example.com/page.html', '_type': 'html', '_url': 'https://example.com/page.html', '_output_path': './temp/url_xxx.md'}
+    ```
+    """
     def __init__(self, intermediate_dir: str = 'intermediate', **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
         self.intermediate_dir = intermediate_dir
@@ -157,6 +192,31 @@ class FileOrURLNormalizer(kbc):
 
 
 class HTMLToMarkdownConverter(kbc):
+    """HTML转Markdown转换器算子。
+
+该算子使用trafilatura库从HTML或XML文件中提取内容并转换为Markdown格式。
+支持本地HTML文件和网络URL，会自动处理页面元数据。
+
+Args:
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 转换后的数据，包含以下字段：
+    - _markdown_path: 生成的Markdown文件路径
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    converter = kbc.HTMLToMarkdownConverter()
+
+    # After normalization
+    data = {'_type': 'html', '_url': 'https://example.com/article', '_output_path': './temp/output.md'}
+    result = converter(data)
+    # Returns: {'_type': 'html', '_url': 'https://example.com/article', '_output_path': './temp/output.md', '_markdown_path': './temp/output.md'}
+    ```
+    """
     def __init__(self, **kwargs):
         super().__init__(_concurrency_mode='thread', **kwargs)
 
@@ -213,6 +273,38 @@ class HTMLToMarkdownConverter(kbc):
 
 
 class PDFToMarkdownConverterAPI(kbc):
+    """PDF转Markdown转换器API算子。
+
+该算子使用MinerU服务将PDF文件（包括扫描件和图片）转换为Markdown格式。
+支持通过API调用MinerU进行PDF解析，可配置后端引擎和上传模式。
+
+Args:
+    mineru_url (str): MinerU服务URL地址。
+    mineru_backend (str): MinerU后端引擎类型，默认为 'vlm-vllm-async-engine'。
+    upload_mode (bool): 是否使用上传模式，默认为 True。
+    **kwargs (dict): 其它可选的参数，传递给父类。
+
+Returns:
+    dict: 转换后的数据，包含以下字段：
+    - _markdown_path: 生成的Markdown文件路径
+
+
+Examples:
+    ```python
+    from lazyllm.tools.data import kbc
+
+    converter = kbc.PDFToMarkdownConverterAPI(
+        mineru_url='your_mineru_url',
+        mineru_backend='vlm-vllm-async-engine',
+        upload_mode=True
+    )
+
+    # After normalization
+    data = {'_type': 'pdf', '_raw_path': '/path/to/doc.pdf', '_output_path': './temp/output.md'}
+    result = converter(data)
+    # Returns: {'_type': 'pdf', '_raw_path': '/path/to/doc.pdf', '_output_path': './temp/output.md', '_markdown_path': './temp/output.md'}
+    ```
+    """
     def __init__(
         self,
         mineru_url: str = None,

@@ -12,6 +12,27 @@ lazyllm.config.add('openai_api', bool, False, 'OPENAI_API', description='Whether
 
 
 class LazyLLMDeployBase(ComponentBase):
+    """此类是 ``ComponentBase`` 的一个子类，提供了LazyLLM部署的基础功能。它支持多种媒体类型的编码转换，并提供了结果提取和流式处理的配置选项。
+
+Args:
+    launcher (LauncherBase): 用于部署的启动器实例，默认为远程启动器(``launchers.remote()``)。
+
+注意事项: 
+    - 继承此类时需要实现具体的部署逻辑
+    - 可以通过重写extract_result方法来自定义结果提取逻辑
+
+
+Examples:
+    >>> import lazyllm
+    >>> from lazyllm.components.deploy.base import LazyLLMDeployBase
+    >>> class MyDeployer(LazyLLMDeployBase):
+    ...     def __call__(self, inputs):
+    ...         return processed_result
+            def extract_result(output, inputs):
+    ...         return output.json()['result']
+    >>> deployer = MyDeployer()
+    >>> result = deployer.extract_result(raw_output, input_data)
+    """
     keys_name_handle = None
     message_format = None
     default_headers = {'Content-Type': 'application/json'}
@@ -22,6 +43,16 @@ class LazyLLMDeployBase(ComponentBase):
 
     @staticmethod
     def extract_result(output, inputs):
+        """从模型输出中提取最终结果，默认实现直接返回原始输出，子类可重写此方法实现自定义结果提取逻辑。
+
+Args:
+    output: 模型原始输出
+    inputs: 原始输入数据，可用于结果后处理
+
+**Returns:**
+
+- 处理后的最终结果
+"""
         return output
 
     def __init__(self, *, launcher=launchers.remote()):  # noqa B008
@@ -29,6 +60,25 @@ class LazyLLMDeployBase(ComponentBase):
 
 
 class DummyDeploy(LazyLLMDeployBase, flows.Pipeline):
+    """DummyDeploy(launcher=launchers.remote(sync=False), *, stream=False, **kw)
+
+一个用于测试的模拟部署类，继承自 `LazyLLMDeployBase` 和 `flows.Pipeline`，实现了一个简单的流水线风格部署服务，
+支持流式输出（可选）。
+
+该类主要用于内部测试和示例用途。它接收符合 `message_format` 格式的输入，根据是否启用 `stream` 参数，返回
+字符串或逐步输出的模拟响应。
+
+Args：
+    launcher: 部署器实例，默认值为 `launchers.remote(sync=False)`。
+    stream (bool): 是否以流式方式输出结果。
+    kw: 其他传递给父类的关键字参数。
+
+Call Arguments:
+    keys_name_handle (dict): 输入字段名的映射。 
+
+    message_format (dict): 默认请求模板，包括输入内容与生成参数。 
+
+"""
     keys_name_handle = {'inputs': 'inputs'}
     message_format = {
         'inputs': '',
